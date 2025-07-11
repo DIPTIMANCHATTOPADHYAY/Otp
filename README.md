@@ -20,6 +20,7 @@ A sophisticated Telegram bot for phone number verification with OTP (One-Time Pa
 - **Real-time Monitoring**: Command logging and error tracking
 
 ### Security Features
+- **Enhanced Device Verification**: Smart logout management during reward confirmation
 - **Database Locking Protection**: Multi-layer fallback validation system
 - **Session Cleanup**: Automatic disconnection and data cleanup
 - **Number Hash Storage**: Privacy-protected number usage tracking
@@ -119,8 +120,29 @@ Use the new `/add` command for comprehensive country setup:
 2. **OTP Request**: System sends verification code via SMS
 3. **Code Verification**: User enters received OTP code
 4. **2FA Setup**: Automatic two-factor authentication configuration
-5. **Background Validation**: Final session verification (cancellable)
+5. **Enhanced Device Verification**: Smart logout management with automatic cleanup
 6. **Reward Distribution**: User receives payment upon completion
+
+### 🔐 Enhanced Device Verification
+
+The bot includes an advanced device verification system that ensures security before reward distribution:
+
+#### **Single Device (Perfect!)** ✅
+- **Detection**: Only one device logged into the account
+- **Action**: Immediate reward confirmation
+- **Message**: "Device Check Passed! Processing reward..."
+
+#### **Multiple Devices (Auto-Cleanup)** 🔄
+- **Detection**: Multiple devices found on the account
+- **Action**: Automatic logout of other devices
+- **Success**: "Device Cleanup Successful! Cleaned up X other device(s)"
+- **Failure**: Manual cleanup instructions provided
+
+#### **Manual Cleanup Required** 🛠️
+- **When**: Automatic logout fails after multiple attempts
+- **Guidance**: Step-by-step instructions for manual device removal
+- **Support**: Platform-specific help (Mobile/Desktop)
+- **Retry**: Number remains available for retry after cleanup
 
 ## 🗄️ Database Schema
 
@@ -172,23 +194,31 @@ The bot includes comprehensive protection against database locking errors:
 ### Directory Structure
 ```
 telegram-otp-bot/
-├── main.py              # Bot entry point
-├── bot_init.py          # Bot initialization
-├── config.py            # Configuration management
-├── db.py                # Database operations
-├── telegram_otp.py      # Core OTP functionality
-├── otp.py               # OTP processing logic
-├── cancel.py            # Cancellation handling
-├── add_country.py       # NEW: Country management
-├── requirements.txt     # Python dependencies
-├── .env                 # Environment variables
-├── .gitignore          # Git ignore rules
-└── README.md           # This file
+├── main.py                        # Bot entry point
+├── bot_init.py                    # Bot initialization
+├── config.py                      # Configuration management
+├── db.py                          # Database operations
+├── telegram_otp.py                # Core OTP functionality
+├── otp.py                         # OTP processing logic
+├── cancel.py                      # Cancellation handling
+├── add_country.py                 # NEW: Country management
+├── reward_logout_verification.py  # NEW: Enhanced device verification
+├── requirements.txt               # Python dependencies
+├── .env                           # Environment variables
+├── .env.example                   # Configuration template
+├── .gitignore                     # Git ignore rules
+└── README.md                      # This file
 ```
 
 ## 🚀 Recent Updates
 
-### Version 2.0 Features
+### Version 2.1 Features
+- **NEW**: Enhanced Device Verification with automatic logout management
+- **NEW**: Smart device cleanup with fallback to manual instructions
+- **NEW**: Configurable 2FA password via environment variables
+- **NEW**: Comprehensive user guidance for device management
+
+### Version 2.0 Features  
 - **NEW**: `/add` command for comprehensive country management
 - **NEW**: `/countries` command to list all configured countries
 - **ENHANCED**: Database locking protection with 4-layer fallback system
