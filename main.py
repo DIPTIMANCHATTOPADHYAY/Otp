@@ -20,7 +20,6 @@ import admin
 import notice
 import help
 import add_country
-import reward_logout_verification
 
 def main():
     print("Bot is running...")

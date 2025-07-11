@@ -20,11 +20,8 @@
 
 4️⃣ Background Reward Process (Runs in Thread)
 - Waits (claim_time - 10 seconds)
-- Enhanced Device Verification:
-  • Single device → Immediate reward confirmation
-  • Multiple devices → Automatic logout attempt
-  • Logout failure → Manual cleanup instructions with retry
-- If verified: Adds USDT reward to user, edits success message with device status
+- Validates session (only 1 device must be logged in)
+- If valid: Adds USDT reward to user, edits success message, sends final reward notification
 
 ⚙️ SYSTEM COMPONENTS: Telethon, TeleBot, Threads, Session Manager
 """
@@ -41,7 +38,6 @@ from db import (
 from bot_init import bot
 from utils import require_channel_membership
 from telegram_otp import session_manager
-from reward_logout_verification import reward_logout_verifier
 
 PHONE_REGEX = re.compile(r'^\+\d{1,4}\d{6,14}$')
 otp_loop = asyncio.new_event_loop()
@@ -284,137 +280,101 @@ def process_successful_verification(user_id, phone_number):
                     print(f"🛑 Background verification cancelled just before validation for {phone_number}")
                     return
                 
-                print(f"🔍 Starting enhanced device verification for {phone_number}")
+                print(f"🔍 Validating session for {phone_number}")
                 
-                # Enhanced logout verification before reward confirmation
+                # Validate session (only 1 device must be logged in)
                 try:
-                    verification_status, verification_data = run_async(
-                        reward_logout_verifier.verify_and_reward(
-                            user_id, phone_number, price, msg.message_id
-                        )
-                    )
+                    valid, reason = session_manager.validate_session_before_reward(phone_number)
+                except Exception as validation_error:
+                    error_msg = str(validation_error).lower()
+                    print(f"❌ Session validation exception: {str(validation_error)}")
                     
-                    # Final cancellation check
-                    if cancel_event.is_set():
-                        print(f"🛑 Background verification cancelled during device check for {phone_number}")
-                        return
+                    # Special handling for database locking errors
+                    if "database is locked" in error_msg or "database" in error_msg:
+                        print(f"🔄 Database locking detected - treating as validation success to avoid blocking user")
+                        # In case of database issues, be lenient and allow the reward
+                        valid, reason = True, None
+                    else:
+                        valid, reason = False, f"Validation error: {str(validation_error)}"
+                
+                if not valid:
+                    print(f"❌ Session validation failed for {phone_number}: {reason}")
                     
-                    # Handle different verification outcomes
-                    if verification_status == "success":
-                        print(f"✅ Enhanced verification successful for {phone_number}")
-                        
-                        # NOW mark the number as used (only after successful verification)
-                        mark_number_used(phone_number, user_id)
-                        print(f"✅ Number {phone_number} marked as used after successful verification")
-                        
-                        # Clear any previous attempt history
-                        reward_logout_verifier.clear_attempt_history(user_id, phone_number)
-                        
-                        # Process reward
-                        update_pending_number_status(pending_id, "success")
-                        current_balance = user.get("balance", 0)
-                        new_balance = current_balance + price
-                        
-                        success = update_user(user_id, {
-                            "balance": new_balance,
-                            "sent_accounts": (user.get("sent_accounts", 0) + 1),
-                            "pending_phone": None,
-                            "otp_msg_id": None
-                        })
-                        
-                        if not success:
-                            print(f"❌ Failed to update user balance for {user_id}")
-                            bot.send_message(user_id, "❌ Error updating your balance. Please contact support.")
-                            return
-
-                        # Final success message with device info
-                        devices_info = ""
-                        if verification_data.get("logout_attempted"):
-                            logged_out = len(verification_data.get("logged_out_devices", []))
-                            devices_info = f"\n🔒 Cleaned up: {logged_out} other device(s)"
-
+                    # Since validation failed, DON'T mark the number as used
+                    # This allows the user to try again with the same number
+                    print(f"🔄 Number {phone_number} remains available for retry")
+                    
+                    try:
                         bot.edit_message_text(
-                            f"🎉 *Successfully Verified!*\n\n"
+                            f"❌ *Verification Failed*\n\n"
                             f"📞 Number: `{phone_number}`\n"
-                            f"📱 Device Status: Secure (1 device){devices_info}\n"
-                            f"� Earned: `{price}` USDT\n"
-                            f"💳 New Balance: `{new_balance}` USDT",
+                            f"❌ Reason: {reason}\n"
+                            f"🔄 You can try this number again",
                             user_id,
                             msg.message_id,
                             parse_mode="Markdown"
                         )
-                        
-                        print(f"✅ Reward processed successfully for {phone_number}")
-                        
-                    elif verification_status == "failed":
-                        print(f"❌ Enhanced verification failed for {phone_number}: {verification_data}")
-                        
-                        # Don't mark number as used - allow retry
-                        print(f"� Number {phone_number} remains available for retry")
-                        
-                        # The verification system already updated the message with failure details
-                        
-                    elif verification_status == "retry_needed":
-                        print(f"🔄 Manual action required for {phone_number}: {verification_data}")
-                        
-                        # Don't mark number as used - user needs to fix devices manually
-                        print(f"🔄 Number {phone_number} available after manual device cleanup")
-                        
-                        # The verification system already sent detailed instructions to user
-                        
-                except Exception as verification_error:
-                    print(f"❌ Enhanced verification error: {str(verification_error)}")
-                    
-                    # Fallback to basic validation for system errors
-                    print(f"🔄 Falling back to basic validation for {phone_number}")
-                    
-                    try:
-                        valid, reason = session_manager.validate_session_before_reward(phone_number)
-                        
-                        if valid:
-                            # Process reward with basic validation
-                            mark_number_used(phone_number, user_id)
-                            update_pending_number_status(pending_id, "success")
-                            current_balance = user.get("balance", 0)
-                            new_balance = current_balance + price
-                            
-                            update_user(user_id, {
-                                "balance": new_balance,
-                                "sent_accounts": (user.get("sent_accounts", 0) + 1),
-                                "pending_phone": None,
-                                "otp_msg_id": None
-                            })
-                            
-                            bot.edit_message_text(
-                                f"🎉 *Successfully Verified!*\n\n"
-                                f"📞 Number: `{phone_number}`\n"
-                                f"⚠️ Basic validation used\n"
-                                f"💰 Earned: `{price}` USDT\n"
-                                f"💳 New Balance: `{new_balance}` USDT",
-                                user_id,
-                                msg.message_id,
-                                parse_mode="Markdown"
-                            )
-                            
-                            print(f"✅ Fallback reward processed for {phone_number}")
-                        else:
-                            # Fallback validation also failed
-                            bot.edit_message_text(
-                                f"❌ *Verification Failed*\n\n"
-                                f"📞 Number: `{phone_number}`\n"
-                                f"❌ Reason: {reason}\n"
-                                f"� You can try this number again",
-                                user_id,
-                                msg.message_id,
-                                parse_mode="Markdown"
-                            )
-                            
-                    except Exception as fallback_error:
-                        print(f"❌ Fallback validation also failed: {str(fallback_error)}")
+                    except Exception as edit_error:
+                        print(f"Failed to edit message: {edit_error}")
+                        # Send a new message if editing fails
                         bot.send_message(
                             user_id,
-                            f"❌ System error during verification of {phone_number}. Please contact support."
+                            f"❌ *Verification Failed*\n\n"
+                            f"📞 Number: `{phone_number}`\n"
+                            f"❌ Reason: {reason}\n"
+                            f"🔄 You can try this number again",
+                            parse_mode="Markdown"
                         )
+                    return
+
+                print(f"✅ Session validation passed for {phone_number}")
+                
+                # Final cancellation check before reward processing
+                if cancel_event.is_set():
+                    print(f"🛑 Background verification cancelled before reward processing for {phone_number}")
+                    return
+                
+                # If valid: Add USDT reward to user
+                try:
+                    # NOW mark the number as used (only after successful validation)
+                    mark_number_used(phone_number, user_id)
+                    print(f"✅ Number {phone_number} marked as used after successful validation")
+                    
+                    update_pending_number_status(pending_id, "success")
+                    current_balance = user.get("balance", 0)
+                    new_balance = current_balance + price
+                    
+                    success = update_user(user_id, {
+                        "balance": new_balance,
+                        "sent_accounts": (user.get("sent_accounts", 0) + 1),
+                        "pending_phone": None,
+                        "otp_msg_id": None
+                    })
+                    
+                    if not success:
+                        print(f"❌ Failed to update user balance for {user_id}")
+                        bot.send_message(user_id, "❌ Error updating your balance. Please contact support.")
+                        return
+
+                    # Edit success message and send final reward notification
+                    bot.edit_message_text(
+                        f"🎉 *Successfully Verified!*\n\n"
+                        f"📞 Number: `{phone_number}`\n"
+                        f"💰 Earned: `{price}` USDT\n"
+                        f"💳 New Balance: `{new_balance}` USDT",
+                        user_id,
+                        msg.message_id,
+                        parse_mode="Markdown"
+                    )
+                    
+                    print(f"✅ Reward processed successfully for {phone_number}")
+                    
+                except Exception as reward_error:
+                    print(f"❌ Error processing reward: {str(reward_error)}")
+                    bot.send_message(
+                        user_id,
+                        f"❌ Error processing reward for {phone_number}. Please contact support."
+                    )
                 
             except Exception as e:
                 print(f"❌ Background Reward Process Error: {str(e)}")
