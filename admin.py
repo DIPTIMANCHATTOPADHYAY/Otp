@@ -12,14 +12,16 @@ def handle_admin(message):
 
     admin_commands = [
         ("/admin", "Show this admin command list"),
+        ("/add <code> <qty> <price> <sec> [name] [flag]", "Add/update country with all parameters"),
+        ("/countries", "List all configured countries"),
         ("/pay <user_id>", "Approve withdrawal for specific user"),
         ("/paycard <card_name>", "Approve all withdrawals for a leader card"),
         ("/rejectpayment <user_id|card:name> [reason]", "Reject withdrawals with optional reason"),
         ("/cardw <card_name>", "Check withdrawal stats for a leader card"),
         ("/userdel <user_id>", "Delete user and all their data"),
-        ("/cun <country_code> <quantity>", "Set country number capacity"),
-        ("/setprice <country_code> <price>", "Set price for a country"),
-        ("/settime <country_code> <seconds>", "Set claim time for a country"),
+        ("/cun <country_code> <quantity>", "Set country number capacity (legacy)"),
+        ("/setprice <country_code> <price>", "Set price for a country (legacy)"),
+        ("/settime <country_code> <seconds>", "Set claim time for a country (legacy)"),
         ("/numberd <country_code>", "Delete a country from the system"),
         ("/card <card_name>", "Add a new leader card"),
         ("/notice ", "Reply text All User Notification")
