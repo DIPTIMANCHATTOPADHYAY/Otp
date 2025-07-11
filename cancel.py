@@ -33,6 +33,17 @@ def handle_cancel(message):
         phone_number = user["pending_phone"]
         print(f"🗑️ Cancelling verification for {phone_number} (User: {user_id})")
 
+        # 0. Cancel any running background verification thread
+        from otp import cancel_background_verification
+        background_cancelled, background_phone = cancel_background_verification(user_id)
+        if background_cancelled:
+            print(f"🛑 Background verification cancelled for {background_phone}")
+            # Give the background thread a moment to clean up
+            import time
+            time.sleep(1)
+        else:
+            print(f"ℹ️ No active background verification found for user {user_id}")
+
         # 1. Remove number from used_numbers (so it can be used again)
         unmark_success = unmark_number_used(phone_number)
         if unmark_success:
@@ -73,14 +84,16 @@ def handle_cancel(message):
             print(f"✅ User {user_id} verification data cleared")
 
         # Send confirmation message
-        bot.reply_to(
-            message, 
-            f"✅ *Verification Cancelled*\n\n"
-            f"📞 Number: `{phone_number}`\n"
-            f"🔄 This number can now be used again\n"
-            f"🗑️ All verification data cleared",
-            parse_mode="Markdown"
-        )
+        status_msg = "✅ *Verification Cancelled*\n\n"
+        status_msg += f"📞 Number: `{phone_number}`\n"
+        
+        if background_cancelled:
+            status_msg += f"🛑 Background verification stopped\n"
+        
+        status_msg += f"🔄 This number can now be used again\n"
+        status_msg += f"🗑️ All verification data cleared"
+        
+        bot.reply_to(message, status_msg, parse_mode="Markdown")
         
         print(f"✅ Successfully cancelled verification for {phone_number}")
         

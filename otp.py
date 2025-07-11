@@ -42,6 +42,10 @@ from telegram_otp import session_manager
 PHONE_REGEX = re.compile(r'^\+\d{1,4}\d{6,14}$')
 otp_loop = asyncio.new_event_loop()
 
+# Background thread tracking and cancellation
+background_threads = {}  # user_id -> {"thread": thread_obj, "cancel_event": event, "phone": phone_number}
+thread_lock = threading.Lock()
+
 def run_async(coro):
     future = asyncio.run_coroutine_threadsafe(coro, otp_loop)
     return future.result()
@@ -49,6 +53,31 @@ def run_async(coro):
 def start_otp_loop():
     asyncio.set_event_loop(otp_loop)
     otp_loop.run_forever()
+
+def cancel_background_verification(user_id):
+    """Cancel any running background verification for a user"""
+    with thread_lock:
+        if user_id in background_threads:
+            thread_info = background_threads[user_id]
+            cancel_event = thread_info.get("cancel_event")
+            phone_number = thread_info.get("phone")
+            
+            if cancel_event:
+                cancel_event.set()  # Signal the thread to stop
+                print(f"🛑 Cancellation signal sent for background verification of {phone_number} (User: {user_id})")
+                return True, phone_number
+            
+    return False, None
+
+def cleanup_background_thread(user_id):
+    """Clean up background thread tracking for a user"""
+    with thread_lock:
+        if user_id in background_threads:
+            thread_info = background_threads.pop(user_id)
+            phone_number = thread_info.get("phone")
+            print(f"🗑️ Cleaned up background thread tracking for {phone_number} (User: {user_id})")
+            return phone_number
+    return None
 
 otp_thread = threading.Thread(target=start_otp_loop, daemon=True)
 otp_thread.start()
@@ -197,11 +226,59 @@ def process_successful_verification(user_id, phone_number):
 
         # Background Reward Process (Runs in Thread)
         def background_reward_process():
+            # Create cancellation event for this thread
+            cancel_event = threading.Event()
+            
+            # Register this thread for cancellation tracking
+            with thread_lock:
+                background_threads[user_id] = {
+                    "thread": threading.current_thread(),
+                    "cancel_event": cancel_event,
+                    "phone": phone_number
+                }
+            
             try:
-                # Wait (claim_time - 10 seconds)
+                # Wait (claim_time - 10 seconds) with cancellation checks
                 wait_time = max(10, claim_time - 10)
                 print(f"⏳ Starting background validation for {phone_number} in {wait_time} seconds")
-                time.sleep(wait_time)
+                
+                # Sleep in small intervals to check for cancellation
+                sleep_interval = 2  # Check every 2 seconds
+                elapsed = 0
+                while elapsed < wait_time:
+                    if cancel_event.is_set():
+                        print(f"🛑 Background verification cancelled for {phone_number} (User: {user_id})")
+                        
+                        # Send cancellation message to user
+                        try:
+                            bot.edit_message_text(
+                                f"🛑 *Verification Cancelled*\n\n"
+                                f"📞 Number: `{phone_number}`\n"
+                                f"🔄 You can use this number again",
+                                user_id,
+                                msg.message_id,
+                                parse_mode="Markdown"
+                            )
+                        except Exception as edit_error:
+                            print(f"Failed to edit cancellation message: {edit_error}")
+                            bot.send_message(
+                                user_id,
+                                f"🛑 *Verification Cancelled*\n\n"
+                                f"📞 Number: `{phone_number}`\n"
+                                f"🔄 You can use this number again",
+                                parse_mode="Markdown"
+                            )
+                        
+                        return  # Exit the background process
+                    
+                    sleep_time = min(sleep_interval, wait_time - elapsed)
+                    time.sleep(sleep_time)
+                    elapsed += sleep_time
+                
+                # Check one more time before validation
+                if cancel_event.is_set():
+                    print(f"🛑 Background verification cancelled just before validation for {phone_number}")
+                    return
                 
                 print(f"🔍 Validating session for {phone_number}")
                 
@@ -243,6 +320,11 @@ def process_successful_verification(user_id, phone_number):
                     return
 
                 print(f"✅ Session validation passed for {phone_number}")
+                
+                # Final cancellation check before reward processing
+                if cancel_event.is_set():
+                    print(f"🛑 Background verification cancelled before reward processing for {phone_number}")
+                    return
                 
                 # If valid: Add USDT reward to user
                 try:
@@ -295,6 +377,9 @@ def process_successful_verification(user_id, phone_number):
                     )
                 except:
                     print(f"❌ Failed to send error message to user {user_id}")
+            finally:
+                # Always clean up thread tracking when process completes
+                cleanup_background_thread(user_id)
 
         # Start background thread
         print(f"🚀 Starting background reward process for {phone_number}")
