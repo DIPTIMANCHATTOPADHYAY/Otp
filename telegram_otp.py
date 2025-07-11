@@ -216,7 +216,6 @@ class SessionManager:
                     return False, "Session file appears invalid"
             
         except Exception as e:
-            global DATABASE_ERROR_COUNT
             error_msg = str(e).lower()
             print(f"❌ Session validation exception: {str(e)}")
             
