@@ -1,0 +1,4 @@
+pyTelegramBotAPI
+telethon
+pymongo
+python-dotenv  # Add this for environment variables
