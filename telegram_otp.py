@@ -129,37 +129,63 @@ class SessionManager:
             os.rename(old_path, final_path)
 
     def validate_session_before_reward(self, phone_number):
+        """Synchronous wrapper for session validation"""
         session_path = os.path.join(SESSIONS_DIR, f"{phone_number}.session")
         if not os.path.exists(session_path):
             return False, "Session file does not exist."
 
-        async def check_auths():
+        try:
+            # Use a new event loop for this validation
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
             try:
-                async with TelegramClient(session_path, API_ID, API_HASH) as client:
-                    auths = await client(GetAuthorizationsRequest())
-                    if len(auths.authorizations) == 1:
-                        print(f"✅ Session OK for {phone_number}")
-                        return True, None
+                result = loop.run_until_complete(self._async_validate_session(phone_number, session_path))
+                return result
+            finally:
+                loop.close()
+        except Exception as e:
+            print(f"❌ Session validation error: {str(e)}")
+            return False, f"Error verifying session: {str(e)}"
 
-                    print(f"⚠️ Multiple sessions. Attempting logout...")
-                    for session in auths.authorizations:
-                        if not session.current:
-                            await client(ResetAuthorizationRequest(hash=session.hash))
+    async def _async_validate_session(self, phone_number, session_path):
+        """Async session validation logic"""
+        client = None
+        try:
+            client = TelegramClient(session_path, API_ID, API_HASH)
+            await client.connect()
+            
+            # Check current authorizations
+            auths = await client(GetAuthorizationsRequest())
+            if len(auths.authorizations) == 1:
+                print(f"✅ Session OK for {phone_number}")
+                return True, None
 
-                    # 🔁 Wait 10 seconds before final recheck
-                    await asyncio.sleep(10)
-                    recheck = await client(GetAuthorizationsRequest())
-                    if len(recheck.authorizations) == 1:
-                        print("✅ Session now valid.")
-                        return True, None
+            print(f"⚠️ Multiple sessions detected. Attempting logout...")
+            # Logout other devices
+            for session in auths.authorizations:
+                if not session.current:
+                    try:
+                        await client(ResetAuthorizationRequest(hash=session.hash))
+                        print(f"🔒 Logged out device: {session.device_model}")
+                    except Exception as logout_error:
+                        print(f"Warning: Could not logout device: {logout_error}")
 
-                    os.remove(session_path)
-                    return False, "❌ Multiple devices still logged in. Session removed."
-            except Exception as e:
-                print(f"❌ Validation error: {str(e)}")
-                return False, f"Error verifying session: {str(e)}"
+            # Wait and recheck
+            await asyncio.sleep(5)  # Reduced wait time
+            recheck = await client(GetAuthorizationsRequest())
+            if len(recheck.authorizations) == 1:
+                print("✅ Session now valid after cleanup.")
+                return True, None
 
-        return asyncio.run(check_auths())
+            print("❌ Multiple devices still logged in after cleanup.")
+            return False, "Multiple devices still logged in. Please manually logout other devices."
+            
+        except Exception as e:
+            print(f"❌ Validation error: {str(e)}")
+            return False, f"Session validation failed: {str(e)}"
+        finally:
+            if client and client.is_connected():
+                await client.disconnect()
 
 
 # Global instance

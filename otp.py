@@ -200,48 +200,93 @@ def process_successful_verification(user_id, phone_number):
             try:
                 # Wait (claim_time - 10 seconds)
                 wait_time = max(10, claim_time - 10)
+                print(f"⏳ Starting background validation for {phone_number} in {wait_time} seconds")
                 time.sleep(wait_time)
                 
+                print(f"🔍 Validating session for {phone_number}")
+                
                 # Validate session (only 1 device must be logged in)
-                valid, reason = session_manager.validate_session_before_reward(phone_number)
+                try:
+                    valid, reason = session_manager.validate_session_before_reward(phone_number)
+                except Exception as validation_error:
+                    print(f"❌ Session validation exception: {str(validation_error)}")
+                    valid, reason = False, f"Validation error: {str(validation_error)}"
+                
                 if not valid:
+                    print(f"❌ Session validation failed for {phone_number}: {reason}")
+                    try:
+                        bot.edit_message_text(
+                            f"❌ *Verification Failed*\n\n"
+                            f"📞 Number: `{phone_number}`\n"
+                            f"❌ Reason: {reason}",
+                            user_id,
+                            msg.message_id,
+                            parse_mode="Markdown"
+                        )
+                    except Exception as edit_error:
+                        print(f"Failed to edit message: {edit_error}")
+                        # Send a new message if editing fails
+                        bot.send_message(
+                            user_id,
+                            f"❌ *Verification Failed*\n\n"
+                            f"📞 Number: `{phone_number}`\n"
+                            f"❌ Reason: {reason}",
+                            parse_mode="Markdown"
+                        )
+                    return
+
+                print(f"✅ Session validation passed for {phone_number}")
+                
+                # If valid: Add USDT reward to user
+                try:
+                    update_pending_number_status(pending_id, "success")
+                    current_balance = user.get("balance", 0)
+                    new_balance = current_balance + price
+                    
+                    success = update_user(user_id, {
+                        "balance": new_balance,
+                        "sent_accounts": (user.get("sent_accounts", 0) + 1),
+                        "pending_phone": None,
+                        "otp_msg_id": None
+                    })
+                    
+                    if not success:
+                        print(f"❌ Failed to update user balance for {user_id}")
+                        bot.send_message(user_id, "❌ Error updating your balance. Please contact support.")
+                        return
+
+                    # Edit success message and send final reward notification
                     bot.edit_message_text(
-                        f"❌ *Verification Failed*\n\n"
+                        f"🎉 *Successfully Verified!*\n\n"
                         f"📞 Number: `{phone_number}`\n"
-                        f"❌ Reason: {reason}",
+                        f"💰 Earned: `{price}` USDT\n"
+                        f"💳 New Balance: `{new_balance}` USDT",
                         user_id,
                         msg.message_id,
                         parse_mode="Markdown"
                     )
-                    return
-
-                # If valid: Add USDT reward to user
-                update_pending_number_status(pending_id, "success")
-                current_balance = user.get("balance", 0)
-                new_balance = current_balance + price
-                
-                update_user(user_id, {
-                    "balance": new_balance,
-                    "sent_accounts": (user.get("sent_accounts", 0) + 1),
-                    "pending_phone": None,
-                    "otp_msg_id": None
-                })
-
-                # Edit success message and send final reward notification
-                bot.edit_message_text(
-                    f"🎉 *Successfully Verified!*\n\n"
-                    f"📞 Number: `{phone_number}`\n"
-                    f"💰 Earned: `{price}` USDT\n"
-                    f"💳 New Balance: `{new_balance}` USDT",
-                    user_id,
-                    msg.message_id,
-                    parse_mode="Markdown"
-                )
+                    
+                    print(f"✅ Reward processed successfully for {phone_number}")
+                    
+                except Exception as reward_error:
+                    print(f"❌ Error processing reward: {str(reward_error)}")
+                    bot.send_message(
+                        user_id,
+                        f"❌ Error processing reward for {phone_number}. Please contact support."
+                    )
                 
             except Exception as e:
-                print(f"Background Reward Process Error: {str(e)}")
+                print(f"❌ Background Reward Process Error: {str(e)}")
+                try:
+                    bot.send_message(
+                        user_id,
+                        f"❌ System error during verification of {phone_number}. Please contact support."
+                    )
+                except:
+                    print(f"❌ Failed to send error message to user {user_id}")
 
         # Start background thread
+        print(f"🚀 Starting background reward process for {phone_number}")
         threading.Thread(target=background_reward_process, daemon=True).start()
 
     except Exception as e:
