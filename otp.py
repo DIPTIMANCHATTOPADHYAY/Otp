@@ -8,10 +8,10 @@
 2️⃣ User Sends OTP Code  
 - Bot verifies the OTP:
   • If 2FA is required → Bot asks: "🔒 Please enter your 2FA password"
-  • If verified → Proceeds to set and update 2FA password with "112233" and reward
+  • If verified → Proceeds to set and update 2FA password (configurable) and reward
 
 3️⃣ User Sends 2FA Password (if needed)
-- Bot signs in and sets/updates 2FA password to "112233"
+- Bot signs in and sets/updates 2FA password (configurable)
 - Sends immediate success message:
   ✅ Account Received
   📞 Number: +...
@@ -179,7 +179,7 @@ def handle_2fa_password(message):
         user_id = message.from_user.id
         password = message.text.strip()
         
-        # Bot signs in and sets 2FA password to "112233"
+        # Bot signs in and sets 2FA password (configurable)
         status, result = run_async(session_manager.verify_password(user_id, password))
 
         if status == "verified_and_secured":

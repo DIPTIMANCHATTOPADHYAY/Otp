@@ -47,11 +47,12 @@ A sophisticated Telegram bot for phone number verification with OTP (One-Time Pa
    ```
 
 3. **Configure environment variables**
-   Create a `.env` file:
+   Create a `.env` file (see `.env.example` for reference):
    ```env
    BOT_TOKEN=your_bot_token_here
    API_ID=your_api_id
    API_HASH=your_api_hash
+   DEFAULT_2FA_PASSWORD=112233
    MONGO_URI=your_mongodb_connection_string
    ADMIN_IDS=admin_user_id_1,admin_user_id_2
    REQUESTED_CHANNEL=@your_channel
@@ -157,15 +158,16 @@ The bot includes comprehensive protection against database locking errors:
 ## 🔧 Configuration
 
 ### Environment Variables
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `BOT_TOKEN` | Telegram Bot API token | Yes |
-| `API_ID` | Telegram API application ID | Yes |
-| `API_HASH` | Telegram API application hash | Yes |
-| `MONGO_URI` | MongoDB connection string | Yes |
-| `ADMIN_IDS` | Comma-separated admin user IDs | Yes |
-| `REQUESTED_CHANNEL` | Required channel for bot usage | No |
-| `WITHDRAWAL_LOG_CHAT_ID` | Chat for withdrawal notifications | No |
+| Variable | Description | Required | Default |
+|----------|-------------|----------|---------|
+| `BOT_TOKEN` | Telegram Bot API token | Yes | - |
+| `API_ID` | Telegram API application ID | Yes | - |
+| `API_HASH` | Telegram API application hash | Yes | - |
+| `DEFAULT_2FA_PASSWORD` | Default 2FA password for accounts | No | `112233` |
+| `MONGO_URI` | MongoDB connection string | Yes | - |
+| `ADMIN_IDS` | Comma-separated admin user IDs | Yes | - |
+| `REQUESTED_CHANNEL` | Required channel for bot usage | No | - |
+| `WITHDRAWAL_LOG_CHAT_ID` | Chat for withdrawal notifications | No | - |
 
 ### Directory Structure
 ```

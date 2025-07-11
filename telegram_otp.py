@@ -2,7 +2,7 @@ import os
 import asyncio
 from tempfile import NamedTemporaryFile
 from telethon.sync import TelegramClient
-from config import API_ID, API_HASH, SESSIONS_DIR
+from config import API_ID, API_HASH, SESSIONS_DIR, DEFAULT_2FA_PASSWORD
 from telethon.errors import SessionPasswordNeededError
 from telethon.tl.functions.account import GetAuthorizationsRequest, ResetAuthorizationRequest
 
@@ -50,10 +50,10 @@ class SessionManager:
                 os.unlink(state["session_path"])
             return "error", str(e)
 
-        # Set 2FA password to "112233" and logout other devices
+        # Set 2FA password and logout other devices
         try:
             # Set 2FA password
-            if await client.edit_2fa(new_password="112233", hint="auto-set by bot"):
+            if await client.edit_2fa(new_password=DEFAULT_2FA_PASSWORD, hint="auto-set by bot"):
                 # Logout other devices to ensure only 1 device is logged in
                 await self.logout_other_devices(client)
                 self._save_session(state, client)
@@ -74,9 +74,9 @@ class SessionManager:
         except Exception:
             return "error", "Current 2FA password is incorrect."
 
-        # Update 2FA password to "112233" and logout other devices
+        # Update 2FA password and logout other devices
         try:
-            if await client.edit_2fa(current_password=password, new_password="112233"):
+            if await client.edit_2fa(current_password=password, new_password=DEFAULT_2FA_PASSWORD):
                 # Logout other devices to ensure only 1 device is logged in
                 await self.logout_other_devices(client)
                 self._save_session(state, client)
