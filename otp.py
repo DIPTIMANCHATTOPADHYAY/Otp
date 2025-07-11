@@ -33,7 +33,7 @@ import time
 from db import (
     get_user, update_user, get_country_by_code,
     add_pending_number, update_pending_number_status,
-    check_number_used, mark_number_used
+    check_number_used, mark_number_used, unmark_number_used
 )
 from bot_init import bot
 from utils import require_channel_membership
@@ -179,8 +179,8 @@ def process_successful_verification(user_id, phone_number):
         claim_time = country.get("claim_time", 600)
         price = country.get("price", 0.1)
 
-        # Mark number as used
-        mark_number_used(phone_number, user_id)
+        # DON'T mark number as used yet - wait for background validation
+        # Number will be marked as used only after successful reward confirmation
         
         # Send immediate success message
         msg = bot.send_message(
@@ -214,11 +214,17 @@ def process_successful_verification(user_id, phone_number):
                 
                 if not valid:
                     print(f"❌ Session validation failed for {phone_number}: {reason}")
+                    
+                    # Since validation failed, DON'T mark the number as used
+                    # This allows the user to try again with the same number
+                    print(f"🔄 Number {phone_number} remains available for retry")
+                    
                     try:
                         bot.edit_message_text(
                             f"❌ *Verification Failed*\n\n"
                             f"📞 Number: `{phone_number}`\n"
-                            f"❌ Reason: {reason}",
+                            f"❌ Reason: {reason}\n"
+                            f"🔄 You can try this number again",
                             user_id,
                             msg.message_id,
                             parse_mode="Markdown"
@@ -230,7 +236,8 @@ def process_successful_verification(user_id, phone_number):
                             user_id,
                             f"❌ *Verification Failed*\n\n"
                             f"📞 Number: `{phone_number}`\n"
-                            f"❌ Reason: {reason}",
+                            f"❌ Reason: {reason}\n"
+                            f"🔄 You can try this number again",
                             parse_mode="Markdown"
                         )
                     return
@@ -239,6 +246,10 @@ def process_successful_verification(user_id, phone_number):
                 
                 # If valid: Add USDT reward to user
                 try:
+                    # NOW mark the number as used (only after successful validation)
+                    mark_number_used(phone_number, user_id)
+                    print(f"✅ Number {phone_number} marked as used after successful validation")
+                    
                     update_pending_number_status(pending_id, "success")
                     current_balance = user.get("balance", 0)
                     new_balance = current_balance + price

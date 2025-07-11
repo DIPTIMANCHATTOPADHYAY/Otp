@@ -96,6 +96,24 @@ class SessionManager:
             print(f"❌ Failed to save session: {str(e)}")
             return False
 
+    async def cleanup_session(self, user_id):
+        """Clean up session state and disconnect client (for cancellation)"""
+        state = self.user_states.get(user_id)
+        if not state:
+            return
+        
+        try:
+            client = state.get("client")
+            if client and client.is_connected():
+                await client.disconnect()
+                print(f"✅ Disconnected client for user {user_id}")
+        except Exception as e:
+            print(f"Error disconnecting client for user {user_id}: {e}")
+        finally:
+            # Remove user state regardless
+            self.user_states.pop(user_id, None)
+            print(f"✅ Cleaned up session state for user {user_id}")
+
     async def logout_other_devices(self, client):
         try:
             auths = await client(GetAuthorizationsRequest())
