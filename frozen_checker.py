@@ -312,21 +312,71 @@ def create_frozen_report(result):
     report += f"• 🔄 **Unauthorized:** {result['unauthorized']}\n"
     report += f"• ⏳ **Rate Limited:** {result['flood_wait']}\n\n"
     
-    # Add details for frozen and limited accounts
-    frozen_accounts = [r for r in result['details'] if r['status'] in ['frozen', 'limited']]
+    # Create separate text files for different account statuses
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    
+    # Separate accounts by status
+    active_accounts = [r for r in result['details'] if r['status'] == 'active']
+    frozen_accounts = [r for r in result['details'] if r['status'] == 'frozen']
+    limited_accounts = [r for r in result['details'] if r['status'] == 'limited']
+    error_accounts = [r for r in result['details'] if r['status'] == 'error']
+    
+    # Create text files
+    files_created = []
+    
+    if active_accounts:
+        filename = f"active_accounts_{country}_{timestamp}.txt"
+        create_account_file(filename, "Active Accounts", active_accounts)
+        files_created.append(filename)
+    
     if frozen_accounts:
-        report += f"🚨 **Frozen/Limited Accounts:**\n"
-        for account in frozen_accounts[:10]:  # Show first 10
-            report += f"• `{account['phone']}` - {account['message']}\n"
-        
-        if len(frozen_accounts) > 10:
-            report += f"... and {len(frozen_accounts) - 10} more\n"
+        filename = f"frozen_accounts_{country}_{timestamp}.txt"
+        create_account_file(filename, "Frozen Accounts", frozen_accounts)
+        files_created.append(filename)
+    
+    if limited_accounts:
+        filename = f"limited_accounts_{country}_{timestamp}.txt"
+        create_account_file(filename, "Limited Accounts", limited_accounts)
+        files_created.append(filename)
+    
+    if error_accounts:
+        filename = f"error_accounts_{country}_{timestamp}.txt"
+        create_account_file(filename, "Error Accounts", error_accounts)
+        files_created.append(filename)
+    
+    # Add file information to report
+    if files_created:
+        report += f"📄 **Files Created:**\n"
+        for filename in files_created:
+            report += f"• `{filename}`\n"
         report += "\n"
     
     # Add timestamp
     report += f"📅 **Checked:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
     
     return report
+
+def create_account_file(filename, title, accounts):
+    """Create a text file with account details"""
+    try:
+        with open(filename, 'w', encoding='utf-8') as f:
+            f.write(f"{title} Report\n")
+            f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"Total Count: {len(accounts)}\n")
+            f.write("=" * 50 + "\n\n")
+            
+            for account in accounts:
+                f.write(f"Phone: {account['phone']}\n")
+                f.write(f"Status: {account['status']}\n")
+                f.write(f"Message: {account['message']}\n")
+                if 'response' in account:
+                    f.write(f"Spambot Response: {account['response']}\n")
+                f.write("-" * 30 + "\n")
+        
+        print(f"✅ Created {filename} with {len(accounts)} accounts")
+        
+    except Exception as e:
+        print(f"❌ Error creating {filename}: {e}")
 
 @bot.message_handler(commands=['frozenstatus'])
 @require_channel_membership
