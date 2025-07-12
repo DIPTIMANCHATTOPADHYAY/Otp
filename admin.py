@@ -41,6 +41,7 @@ def handle_admin(message):
         ("/getinfo +country_code", "Get detailed info about sessions for a country"),
         ("/frozen +country_code", "Check if session accounts are frozen using @Spambot"),
         ("/frozenstatus", "Check status of ongoing frozen check"),
+        ("/frozencheck", "Test connection to Telegram before frozen check"),
         ("/frozentest", "Test the frozen checker system")
     ]
 

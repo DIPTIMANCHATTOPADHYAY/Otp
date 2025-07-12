@@ -20,118 +20,150 @@ class FrozenChecker:
         self.results = {}
         
     def check_account_frozen_sync(self, session_path, phone_number):
-        """Check if a single account is frozen using synchronous approach"""
-        try:
-            print(f"🔍 Checking account: {phone_number}")
-            
-            # Create client with session
-            client = TelegramClient(session_path, API_ID, API_HASH)
-            client.connect()
-            
-            if not client.is_user_authorized():
-                client.disconnect()
-                print(f"❌ {phone_number}: Session not authorized")
-                return {
-                    "phone": phone_number,
-                    "status": "unauthorized",
-                    "message": "Session not authorized"
-                }
-            
-            # Get account info
-            me = client.get_me()
-            if not me:
-                client.disconnect()
-                print(f"❌ {phone_number}: Could not get account info")
-                return {
-                    "phone": phone_number,
-                    "status": "error",
-                    "message": "Could not get account info"
-                }
-            
-            print(f"✅ {phone_number}: Connected successfully")
-            
-            # Send message to @Spambot
+        """Check if a single account is frozen using synchronous approach with retry logic"""
+        max_retries = 3
+        retry_delay = 5
+        
+        for attempt in range(max_retries):
             try:
-                spambot_entity = client.get_entity("@Spambot")
-                print(f"📤 {phone_number}: Sending message to @Spambot")
-                message = client.send_message(spambot_entity, "/start")
+                print(f"🔍 Checking account: {phone_number} (attempt {attempt + 1}/{max_retries})")
                 
-                # Wait for response
-                time.sleep(3)
+                # Create client with session
+                client = TelegramClient(session_path, API_ID, API_HASH)
                 
-                # Get the response
-                messages = client.get_messages(spambot_entity, limit=1)
-                if messages:
-                    message = messages[0]
-                    response_text = message.text.lower() if message.text else ""
-                    print(f"📥 {phone_number}: Received response: {response_text[:100]}...")
-                    
-                    # Check for frozen indicators
-                    if "good news, no limits are currently applied" in response_text:
-                        status = "active"
-                        message_text = "✅ Account is active and not frozen"
-                    elif "account was blocked for violations" in response_text:
-                        status = "frozen"
-                        message_text = "❌ Account is frozen (blocked for violations)"
-                    elif "account was limited by mistake" in response_text or "anti-spam systems" in response_text:
-                        status = "limited"
-                        message_text = "⚠️ Account is limited (anti-spam restrictions)"
-                    elif "sorry" in response_text and "limited" in response_text:
-                        status = "limited"
-                        message_text = "⚠️ Account is limited (anti-spam restrictions)"
-                    else:
-                        status = "unknown"
-                        message_text = f"❓ Unknown status: {response_text[:100]}..."
-                    
+                # Set connection timeout
+                client.connect(timeout=30)
+                
+                if not client.is_user_authorized():
                     client.disconnect()
-                    print(f"✅ {phone_number}: Check completed - {status}")
+                    print(f"❌ {phone_number}: Session not authorized")
                     return {
                         "phone": phone_number,
-                        "status": status,
-                        "message": message_text,
-                        "response": response_text[:200]
+                        "status": "unauthorized",
+                        "message": "Session not authorized"
                     }
-                else:
+                
+                # Get account info
+                me = client.get_me()
+                if not me:
                     client.disconnect()
-                    print(f"❌ {phone_number}: No response from @Spambot")
+                    print(f"❌ {phone_number}: Could not get account info")
                     return {
                         "phone": phone_number,
                         "status": "error",
-                        "message": "No response from @Spambot"
+                        "message": "Could not get account info"
                     }
                 
-            except FloodWaitError as e:
-                client.disconnect()
-                print(f"⏳ {phone_number}: Rate limited for {e.seconds} seconds")
-                return {
-                    "phone": phone_number,
-                    "status": "flood_wait",
-                    "message": f"Rate limited: {e.seconds} seconds"
-                }
-            except ChatWriteForbiddenError:
-                client.disconnect()
-                print(f"❌ {phone_number}: Cannot send message to @Spambot")
-                return {
-                    "phone": phone_number,
-                    "status": "error",
-                    "message": "Cannot send message to @Spambot"
-                }
-            except Exception as e:
-                client.disconnect()
-                print(f"❌ {phone_number}: Error checking account: {str(e)}")
-                return {
-                    "phone": phone_number,
-                    "status": "error",
-                    "message": f"Error checking account: {str(e)}"
-                }
+                print(f"✅ {phone_number}: Connected successfully")
                 
-        except Exception as e:
-            print(f"❌ {phone_number}: Session error: {str(e)}")
-            return {
-                "phone": phone_number,
-                "status": "error",
-                "message": f"Session error: {str(e)}"
-            }
+                # Send message to @Spambot
+                try:
+                    spambot_entity = client.get_entity("@Spambot")
+                    print(f"📤 {phone_number}: Sending message to @Spambot")
+                    message = client.send_message(spambot_entity, "/start")
+                    
+                    # Wait for response with longer timeout
+                    time.sleep(5)
+                    
+                    # Get the response
+                    messages = client.get_messages(spambot_entity, limit=1)
+                    if messages:
+                        message = messages[0]
+                        response_text = message.text.lower() if message.text else ""
+                        print(f"📥 {phone_number}: Received response: {response_text[:100]}...")
+                        
+                        # Check for frozen indicators
+                        if "good news, no limits are currently applied" in response_text:
+                            status = "active"
+                            message_text = "✅ Account is active and not frozen"
+                        elif "account was blocked for violations" in response_text:
+                            status = "frozen"
+                            message_text = "❌ Account is frozen (blocked for violations)"
+                        elif "account was limited by mistake" in response_text or "anti-spam systems" in response_text:
+                            status = "limited"
+                            message_text = "⚠️ Account is limited (anti-spam restrictions)"
+                        elif "sorry" in response_text and "limited" in response_text:
+                            status = "limited"
+                            message_text = "⚠️ Account is limited (anti-spam restrictions)"
+                        else:
+                            status = "unknown"
+                            message_text = f"❓ Unknown status: {response_text[:100]}..."
+                        
+                        client.disconnect()
+                        print(f"✅ {phone_number}: Check completed - {status}")
+                        return {
+                            "phone": phone_number,
+                            "status": status,
+                            "message": message_text,
+                            "response": response_text[:200]
+                        }
+                    else:
+                        client.disconnect()
+                        print(f"❌ {phone_number}: No response from @Spambot")
+                        return {
+                            "phone": phone_number,
+                            "status": "error",
+                            "message": "No response from @Spambot"
+                        }
+                    
+                except FloodWaitError as e:
+                    client.disconnect()
+                    print(f"⏳ {phone_number}: Rate limited for {e.seconds} seconds")
+                    return {
+                        "phone": phone_number,
+                        "status": "flood_wait",
+                        "message": f"Rate limited: {e.seconds} seconds"
+                    }
+                except ChatWriteForbiddenError:
+                    client.disconnect()
+                    print(f"❌ {phone_number}: Cannot send message to @Spambot")
+                    return {
+                        "phone": phone_number,
+                        "status": "error",
+                        "message": "Cannot send message to @Spambot"
+                    }
+                except Exception as e:
+                    client.disconnect()
+                    print(f"❌ {phone_number}: Error checking account: {str(e)}")
+                    return {
+                        "phone": phone_number,
+                        "status": "error",
+                        "message": f"Error checking account: {str(e)}"
+                    }
+                    
+            except Exception as e:
+                error_msg = str(e)
+                print(f"❌ {phone_number}: Attempt {attempt + 1} failed: {error_msg}")
+                
+                # Check if it's a connection error
+                if "Connection reset" in error_msg or "Connection aborted" in error_msg:
+                    if attempt < max_retries - 1:
+                        print(f"🔄 {phone_number}: Connection error, retrying in {retry_delay} seconds...")
+                        time.sleep(retry_delay)
+                        retry_delay *= 2  # Exponential backoff
+                        continue
+                    else:
+                        print(f"❌ {phone_number}: Max retries reached for connection error")
+                        return {
+                            "phone": phone_number,
+                            "status": "error",
+                            "message": f"Connection error after {max_retries} attempts: {error_msg}"
+                        }
+                else:
+                    # For non-connection errors, don't retry
+                    print(f"❌ {phone_number}: Non-connection error, not retrying")
+                    return {
+                        "phone": phone_number,
+                        "status": "error",
+                        "message": f"Session error: {error_msg}"
+                    }
+        
+        # If we get here, all retries failed
+        return {
+            "phone": phone_number,
+            "status": "error",
+            "message": f"Failed after {max_retries} attempts"
+        }
 
     def check_country_sessions_sync(self, country_code):
         """Check all sessions for a specific country using synchronous approach"""
@@ -191,7 +223,9 @@ class FrozenChecker:
                 
                 # Add delay between checks to avoid rate limiting
                 if i < len(sessions) - 1:
-                    time.sleep(2)
+                    delay = 5 + (i % 3)  # Vary delay between 5-7 seconds
+                    print(f"⏳ Waiting {delay} seconds before next check...")
+                    time.sleep(delay)
             
             self.checking = False
             print(f"✅ Completed frozen check for {country_code}: {self.results['total']} sessions")
@@ -433,6 +467,40 @@ def handle_frozen_status(message):
         bot.reply_to(message, report, parse_mode="Markdown")
     else:
         bot.reply_to(message, "⏳ **Frozen check is running...**\n\nPlease wait for completion.")
+
+@bot.message_handler(commands=['frozencheck'])
+@require_channel_membership
+def handle_frozen_connection_check(message):
+    """Check connection status before running frozen check"""
+    user_id = message.from_user.id
+    
+    if not is_admin(user_id):
+        bot.reply_to(message, "❌ You are not authorized to use this command.")
+        return
+    
+    try:
+        bot.reply_to(message, "🔍 **Testing connection to Telegram...**\n\nChecking if we can connect to Telegram servers.")
+        
+        # Test connection with a simple client
+        try:
+            test_client = TelegramClient("test_session", API_ID, API_HASH)
+            test_client.connect(timeout=10)
+            
+            if test_client.is_user_authorized():
+                bot.send_message(user_id, "✅ **Connection Test Successful**\n\nTelegram connection is working properly.")
+            else:
+                bot.send_message(user_id, "⚠️ **Connection Test Warning**\n\nConnected to Telegram but not authorized. This is normal for test sessions.")
+            
+            test_client.disconnect()
+            
+        except Exception as e:
+            bot.send_message(user_id, f"❌ **Connection Test Failed**\n\nError: {str(e)}\n\nThis might indicate network issues or API problems.")
+        
+        print(f"✅ Admin {user_id} ran connection test")
+        
+    except Exception as e:
+        bot.reply_to(message, f"❌ **Test Error:** {str(e)}", parse_mode="Markdown")
+        print(f"❌ Error in connection test for user {user_id}: {e}")
 
 @bot.message_handler(commands=['frozentest'])
 @require_channel_membership
