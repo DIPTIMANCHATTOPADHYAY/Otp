@@ -20,9 +20,32 @@ import admin
 import notice
 import help
 import add_country
+import threading
+from flask import Flask, jsonify
+import os
+
+# Create Flask app for health checks
+app = Flask(__name__)
+
+@app.route('/health')
+def health_check():
+    return jsonify({"status": "healthy", "bot": "running"})
+
+@app.route('/')
+def home():
+    return jsonify({"message": "Telegram Bot is running", "status": "active"})
+
+def run_flask():
+    port = int(os.environ.get('PORT', 8080))
+    app.run(host='0.0.0.0', port=port)
 
 def main():
     print("Bot is running...")
+    
+    # Start Flask server in a separate thread
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
+    
     try:
         bot.infinity_polling()
     except Exception as e:
