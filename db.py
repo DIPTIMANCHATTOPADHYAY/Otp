@@ -415,16 +415,6 @@ def mark_number_used(phone_number: str, user_id: int) -> bool:
         print(f"Error in mark_number_used: {str(e)}")
         return False
 
-def unmark_number_used(phone_number: str) -> bool:
-    """Remove a phone number from used numbers (for cancellation)"""
-    try:
-        number_hash = hashlib.sha256(phone_number.encode()).hexdigest()
-        result = db.used_numbers.delete_one({"number_hash": number_hash})
-        return result.deleted_count > 0
-    except Exception as e:
-        print(f"Error in unmark_number_used: {str(e)}")
-        return False
-
 async def async_mark_number_used(phone_number: str, user_id: int) -> bool:
     """Async version of mark_number_used"""
     try:

@@ -8,9 +8,6 @@ API_ID = int(os.getenv('API_ID', 20094764))
 API_HASH = os.getenv('API_HASH', 'ac33c77cfdbe4f94ebd73dde27b4a10c')
 BOT_TOKEN = os.getenv('BOT_TOKEN', '7246099288:AAGEgP5hFkY3NJicptMgHInQ1APDTMBJT8M')
 
-# OTP Settings
-DEFAULT_2FA_PASSWORD = os.getenv('DEFAULT_2FA_PASSWORD', '112233')
-
 # Database
 MONGO_URI = os.getenv('MONGO_URI', "mongodb+srv://noob:K3a4ofLngiMG8Hl9@tele.fjm9acq.mongodb.net/?retryWrites=true&w=majority")
 

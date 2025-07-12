@@ -19,7 +19,7 @@ import rejectpayment
 import admin
 import notice
 import help
-import add_country
+#import verification_flow
 
 def main():
     print("Bot is running...")
