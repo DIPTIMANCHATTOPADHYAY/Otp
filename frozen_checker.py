@@ -14,35 +14,22 @@ import re
 def is_admin(user_id):
     return user_id in ADMIN_IDS
 
-def run_async(coro):
-    """Run async function in the background thread"""
-    try:
-        # Create a new event loop for this thread
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        result = loop.run_until_complete(coro)
-        loop.close()
-        return result
-    except Exception as e:
-        print(f"Error running async in frozen_checker: {e}")
-        return None
-
 class FrozenChecker:
     def __init__(self):
         self.checking = False
         self.results = {}
         
-    async def check_account_frozen(self, session_path, phone_number):
-        """Check if a single account is frozen by testing with @Spambot"""
+    def check_account_frozen_sync(self, session_path, phone_number):
+        """Check if a single account is frozen using synchronous approach"""
         try:
             print(f"🔍 Checking account: {phone_number}")
             
             # Create client with session
             client = TelegramClient(session_path, API_ID, API_HASH)
-            await client.connect()
+            client.connect()
             
-            if not await client.is_user_authorized():
-                await client.disconnect()
+            if not client.is_user_authorized():
+                client.disconnect()
                 print(f"❌ {phone_number}: Session not authorized")
                 return {
                     "phone": phone_number,
@@ -51,9 +38,9 @@ class FrozenChecker:
                 }
             
             # Get account info
-            me = await client.get_me()
+            me = client.get_me()
             if not me:
-                await client.disconnect()
+                client.disconnect()
                 print(f"❌ {phone_number}: Could not get account info")
                 return {
                     "phone": phone_number,
@@ -65,15 +52,17 @@ class FrozenChecker:
             
             # Send message to @Spambot
             try:
-                spambot_entity = await client.get_entity("@Spambot")
+                spambot_entity = client.get_entity("@Spambot")
                 print(f"📤 {phone_number}: Sending message to @Spambot")
-                message = await client.send_message(spambot_entity, "/start")
+                message = client.send_message(spambot_entity, "/start")
                 
                 # Wait for response
-                await asyncio.sleep(3)
+                time.sleep(3)
                 
                 # Get the response
-                async for message in client.iter_messages(spambot_entity, limit=1):
+                messages = client.get_messages(spambot_entity, limit=1)
+                if messages:
+                    message = messages[0]
                     response_text = message.text.lower() if message.text else ""
                     print(f"📥 {phone_number}: Received response: {response_text[:100]}...")
                     
@@ -94,7 +83,7 @@ class FrozenChecker:
                         status = "unknown"
                         message_text = f"❓ Unknown status: {response_text[:100]}..."
                     
-                    await client.disconnect()
+                    client.disconnect()
                     print(f"✅ {phone_number}: Check completed - {status}")
                     return {
                         "phone": phone_number,
@@ -102,17 +91,17 @@ class FrozenChecker:
                         "message": message_text,
                         "response": response_text[:200]
                     }
-                
-                await client.disconnect()
-                print(f"❌ {phone_number}: No response from @Spambot")
-                return {
-                    "phone": phone_number,
-                    "status": "error",
-                    "message": "No response from @Spambot"
-                }
+                else:
+                    client.disconnect()
+                    print(f"❌ {phone_number}: No response from @Spambot")
+                    return {
+                        "phone": phone_number,
+                        "status": "error",
+                        "message": "No response from @Spambot"
+                    }
                 
             except FloodWaitError as e:
-                await client.disconnect()
+                client.disconnect()
                 print(f"⏳ {phone_number}: Rate limited for {e.seconds} seconds")
                 return {
                     "phone": phone_number,
@@ -120,7 +109,7 @@ class FrozenChecker:
                     "message": f"Rate limited: {e.seconds} seconds"
                 }
             except ChatWriteForbiddenError:
-                await client.disconnect()
+                client.disconnect()
                 print(f"❌ {phone_number}: Cannot send message to @Spambot")
                 return {
                     "phone": phone_number,
@@ -128,7 +117,7 @@ class FrozenChecker:
                     "message": "Cannot send message to @Spambot"
                 }
             except Exception as e:
-                await client.disconnect()
+                client.disconnect()
                 print(f"❌ {phone_number}: Error checking account: {str(e)}")
                 return {
                     "phone": phone_number,
@@ -144,8 +133,8 @@ class FrozenChecker:
                 "message": f"Session error: {str(e)}"
             }
 
-    async def check_country_sessions(self, country_code):
-        """Check all sessions for a specific country"""
+    def check_country_sessions_sync(self, country_code):
+        """Check all sessions for a specific country using synchronous approach"""
         if self.checking:
             return {"error": "Already checking sessions"}
         
@@ -163,6 +152,8 @@ class FrozenChecker:
         }
         
         try:
+            print(f"🌍 Starting frozen check for {country_code}")
+            
             # Get sessions for this country
             sessions_by_country = session_manager.list_country_sessions(country_code)
             
@@ -173,10 +164,14 @@ class FrozenChecker:
             sessions = sessions_by_country[country_code]
             self.results["total"] = len(sessions)
             
+            print(f"📱 Found {len(sessions)} sessions for {country_code}")
+            
             # Check each session
             for i, session in enumerate(sessions):
                 session_path = session['session_path']
                 phone_number = session['phone_number']
+                
+                print(f"🔍 Checking {i+1}/{len(sessions)}: {phone_number}")
                 
                 if not os.path.exists(session_path):
                     result = {
@@ -185,7 +180,7 @@ class FrozenChecker:
                         "message": "Session file not found"
                     }
                 else:
-                    result = await self.check_account_frozen(session_path, phone_number)
+                    result = self.check_account_frozen_sync(session_path, phone_number)
                 
                 # Update counters
                 status = result.get("status", "error")
@@ -196,13 +191,15 @@ class FrozenChecker:
                 
                 # Add delay between checks to avoid rate limiting
                 if i < len(sessions) - 1:
-                    await asyncio.sleep(2)
+                    time.sleep(2)
             
             self.checking = False
+            print(f"✅ Completed frozen check for {country_code}: {self.results['total']} sessions")
             return self.results
             
         except Exception as e:
             self.checking = False
+            print(f"❌ Error in check_country_sessions_sync: {str(e)}")
             return {"error": f"Error checking sessions: {str(e)}"}
 
 # Global instance
@@ -267,7 +264,7 @@ def handle_frozen_check(message):
         def run_check():
             try:
                 print(f"🚀 Starting frozen check for {country_code}")
-                result = run_async(frozen_checker.check_country_sessions(country_code))
+                result = frozen_checker.check_country_sessions_sync(country_code)
                 
                 if result is None:
                     bot.edit_message_text(
