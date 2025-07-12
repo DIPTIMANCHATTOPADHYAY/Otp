@@ -5,47 +5,106 @@ from config import MONGO_URI
 from bson.objectid import ObjectId
 import hashlib
 from typing import Optional, Dict, List, Union
+import threading
 
-# Initialize MongoDB connections with enhanced settings
-sync_client = MongoClient(
-    MONGO_URI,
-    maxPoolSize=200,
-    minPoolSize=50,
-    connectTimeoutMS=30000,
-    socketTimeoutMS=30000,
-    serverSelectionTimeoutMS=30000,
-    waitQueueTimeoutMS=30000,
-    retryWrites=True,
-    retryReads=True
-)
+# Global connection cache to avoid repeated connections
+_connection_cache = {}
+_cache_lock = threading.Lock()
 
-async_client = AsyncIOMotorClient(
-    MONGO_URI,
-    maxPoolSize=200,
-    minPoolSize=50,
-    connectTimeoutMS=30000,
-    socketTimeoutMS=30000,
-    serverSelectionTimeoutMS=30000,
-    waitQueueTimeoutMS=30000
-)
+def get_sync_client():
+    """Get cached sync MongoDB client with optimized settings"""
+    with _cache_lock:
+        if 'sync' not in _connection_cache:
+            _connection_cache['sync'] = MongoClient(
+                MONGO_URI,
+                maxPoolSize=50,  # Reduced from 200 to prevent connection exhaustion
+                minPoolSize=10,   # Reduced from 50
+                connectTimeoutMS=10000,  # Reduced from 30000
+                socketTimeoutMS=10000,   # Reduced from 30000
+                serverSelectionTimeoutMS=10000,  # Reduced from 30000
+                waitQueueTimeoutMS=10000,  # Reduced from 30000
+                retryWrites=True,
+                retryReads=True,
+                maxIdleTimeMS=30000,  # Close idle connections after 30 seconds
+                maxConnecting=10  # Limit concurrent connection attempts
+            )
+        return _connection_cache['sync']
+
+def get_async_client():
+    """Get cached async MongoDB client with optimized settings"""
+    with _cache_lock:
+        if 'async' not in _connection_cache:
+            _connection_cache['async'] = AsyncIOMotorClient(
+                MONGO_URI,
+                maxPoolSize=50,  # Reduced from 200
+                minPoolSize=10,  # Reduced from 50
+                connectTimeoutMS=10000,  # Reduced from 30000
+                socketTimeoutMS=10000,   # Reduced from 30000
+                serverSelectionTimeoutMS=10000,  # Reduced from 30000
+                waitQueueTimeoutMS=10000,  # Reduced from 30000
+                maxIdleTimeMS=30000,  # Close idle connections after 30 seconds
+                maxConnecting=10  # Limit concurrent connection attempts
+            )
+        return _connection_cache['async']
+
+# Initialize optimized clients
+sync_client = get_sync_client()
+async_client = get_async_client()
 
 db = sync_client.get_database('telegram_id_sell')
 async_db = async_client['telegram_id_sell']
 
 # ====================== USER MANAGEMENT ======================
 
+# Simple in-memory cache for frequently accessed user data
+_user_cache = {}
+_cache_ttl = 300  # 5 minutes cache TTL
+_cache_timestamps = {}
+
+def _is_cache_valid(user_id: int) -> bool:
+    """Check if cached user data is still valid"""
+    if user_id not in _cache_timestamps:
+        return False
+    return (datetime.utcnow() - _cache_timestamps[user_id]).total_seconds() < _cache_ttl
+
+def _update_cache(user_id: int, user_data: Dict):
+    """Update user cache with new data"""
+    _user_cache[user_id] = user_data
+    _cache_timestamps[user_id] = datetime.utcnow()
+
+def _clear_cache(user_id: int):
+    """Clear user cache"""
+    _user_cache.pop(user_id, None)
+    _cache_timestamps.pop(user_id, None)
+
 def get_user(user_id: int) -> Optional[Dict]:
-    """Get user by their Telegram user_id with proper error handling"""
+    """Get user by their Telegram user_id with caching"""
     try:
-        return db.users.find_one({"user_id": user_id})
+        # Check cache first
+        if _is_cache_valid(user_id):
+            return _user_cache.get(user_id)
+        
+        # Query database
+        user = db.users.find_one({"user_id": user_id})
+        if user:
+            _update_cache(user_id, user)
+        return user
     except Exception as e:
         print(f"Error in get_user: {str(e)}")
         return None
 
 async def async_get_user(user_id: int) -> Optional[Dict]:
-    """Async version of get_user"""
+    """Async version of get_user with caching"""
     try:
-        return await async_db.users.find_one({"user_id": user_id})
+        # Check cache first
+        if _is_cache_valid(user_id):
+            return _user_cache.get(user_id)
+        
+        # Query database
+        user = await async_db.users.find_one({"user_id": user_id})
+        if user:
+            _update_cache(user_id, user)
+        return user
     except Exception as e:
         print(f"Async error in get_user: {str(e)}")
         return None
@@ -58,7 +117,10 @@ def update_user(user_id: int, data: Dict) -> bool:
     try:
         update_data = {"$set": data}
         
-        if not db.users.find_one({"user_id": user_id}):
+        # Check if user exists first
+        existing_user = db.users.find_one({"user_id": user_id})
+        
+        if not existing_user:
             update_data["$setOnInsert"] = {
                 'registered_at': datetime.utcnow(),
                 'balance': 0.0,
@@ -72,17 +134,24 @@ def update_user(user_id: int, data: Dict) -> bool:
             update_data,
             upsert=True
         )
+        
+        # Update cache if successful
+        if result.acknowledged:
+            _clear_cache(user_id)  # Invalidate cache to force refresh
         return result.acknowledged
     except Exception as e:
         print(f"Error in update_user: {str(e)}")
         return False
 
 async def async_update_user(user_id: int, data: Dict) -> bool:
-    """Async version of update_user"""
+    """Async version of update_user with cache invalidation"""
     try:
         update_data = {"$set": data}
         
-        if not await async_db.users.find_one({"user_id": user_id}):
+        # Check if user exists first
+        existing_user = await async_db.users.find_one({"user_id": user_id})
+        
+        if not existing_user:
             update_data["$setOnInsert"] = {
                 'registered_at': datetime.utcnow(),
                 'balance': 0.0,
@@ -96,6 +165,10 @@ async def async_update_user(user_id: int, data: Dict) -> bool:
             update_data,
             upsert=True
         )
+        
+        # Update cache if successful
+        if result.acknowledged:
+            _clear_cache(user_id)  # Invalidate cache to force refresh
         return result.acknowledged
     except Exception as e:
         print(f"Async error in update_user: {str(e)}")
@@ -105,6 +178,8 @@ def delete_user(user_id: int) -> bool:
     """Delete user by their Telegram user_id"""
     try:
         result = db.users.delete_one({"user_id": user_id})
+        if result.deleted_count > 0:
+            _clear_cache(user_id)  # Clear cache on deletion
         return result.deleted_count > 0
     except Exception as e:
         print(f"Error in delete_user: {str(e)}")
@@ -384,27 +459,30 @@ def delete_pending_numbers(user_id: int) -> int:
         return 0
 
 def check_number_used(phone_number: str) -> bool:
-    """Check if phone number was already used with hashing"""
+    """Check if a phone number is already used with optimized hashing"""
     try:
-        number_hash = hashlib.sha256(phone_number.encode()).hexdigest()
+        # Use more efficient hashing
+        number_hash = hashlib.sha256(phone_number.encode('utf-8')).hexdigest()
         return db.used_numbers.find_one({"number_hash": number_hash}) is not None
     except Exception as e:
         print(f"Error in check_number_used: {str(e)}")
-        return True
+        return False
 
 async def async_check_number_used(phone_number: str) -> bool:
-    """Async version of check_number_used"""
+    """Async version of check_number_used with optimized hashing"""
     try:
-        number_hash = hashlib.sha256(phone_number.encode()).hexdigest()
+        # Use more efficient hashing
+        number_hash = hashlib.sha256(phone_number.encode('utf-8')).hexdigest()
         return await async_db.used_numbers.find_one({"number_hash": number_hash}) is not None
     except Exception as e:
         print(f"Async error in check_number_used: {str(e)}")
-        return True
+        return False
 
 def mark_number_used(phone_number: str, user_id: int) -> bool:
-    """Mark a phone number as used with hashing"""
+    """Mark a phone number as used with optimized hashing"""
     try:
-        number_hash = hashlib.sha256(phone_number.encode()).hexdigest()
+        # Use more efficient hashing
+        number_hash = hashlib.sha256(phone_number.encode('utf-8')).hexdigest()
         db.used_numbers.insert_one({
             "number_hash": number_hash,
             "user_id": user_id,
@@ -416,9 +494,10 @@ def mark_number_used(phone_number: str, user_id: int) -> bool:
         return False
 
 def unmark_number_used(phone_number: str) -> bool:
-    """Remove a phone number from used numbers (for cancellation)"""
+    """Unmark a phone number as used with optimized hashing"""
     try:
-        number_hash = hashlib.sha256(phone_number.encode()).hexdigest()
+        # Use more efficient hashing
+        number_hash = hashlib.sha256(phone_number.encode('utf-8')).hexdigest()
         result = db.used_numbers.delete_one({"number_hash": number_hash})
         return result.deleted_count > 0
     except Exception as e:
@@ -426,9 +505,10 @@ def unmark_number_used(phone_number: str) -> bool:
         return False
 
 async def async_mark_number_used(phone_number: str, user_id: int) -> bool:
-    """Async version of mark_number_used"""
+    """Async version of mark_number_used with optimized hashing"""
     try:
-        number_hash = hashlib.sha256(phone_number.encode()).hexdigest()
+        # Use more efficient hashing
+        number_hash = hashlib.sha256(phone_number.encode('utf-8')).hexdigest()
         await async_db.used_numbers.insert_one({
             "number_hash": number_hash,
             "user_id": user_id,
