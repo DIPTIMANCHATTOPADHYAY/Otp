@@ -1,4 +1,5 @@
 pyTelegramBotAPI
 telethon
 pymongo
-python-dotenv  # Add this for environment variables
+python-dotenv
+motor  # For async MongoDB operations
