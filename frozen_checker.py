@@ -312,42 +312,21 @@ def create_frozen_report(result):
     report += f"• 🔄 **Unauthorized:** {result['unauthorized']}\n"
     report += f"• ⏳ **Rate Limited:** {result['flood_wait']}\n\n"
     
-    # Log frozen and limited accounts to file instead of showing in report
+    # Add details for frozen and limited accounts
     frozen_accounts = [r for r in result['details'] if r['status'] in ['frozen', 'limited']]
     if frozen_accounts:
-        log_frozen_accounts(country, frozen_accounts)
-        report += f"🚨 **Frozen/Limited Accounts:** {len(frozen_accounts)} found\n"
-        report += f"📄 **Details logged to:** `frozen_accounts_{country}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log`\n\n"
+        report += f"🚨 **Frozen/Limited Accounts:**\n"
+        for account in frozen_accounts[:10]:  # Show first 10
+            report += f"• `{account['phone']}` - {account['message']}\n"
+        
+        if len(frozen_accounts) > 10:
+            report += f"... and {len(frozen_accounts) - 10} more\n"
+        report += "\n"
     
     # Add timestamp
     report += f"📅 **Checked:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
     
     return report
-
-def log_frozen_accounts(country, frozen_accounts):
-    """Log frozen and limited accounts to a file"""
-    try:
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        filename = f"frozen_accounts_{country}_{timestamp}.log"
-        
-        with open(filename, 'w', encoding='utf-8') as f:
-            f.write(f"Frozen/Limited Accounts Report for {country}\n")
-            f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"Total Found: {len(frozen_accounts)}\n")
-            f.write("=" * 50 + "\n\n")
-            
-            for account in frozen_accounts:
-                f.write(f"Phone: {account['phone']}\n")
-                f.write(f"Status: {account['status']}\n")
-                f.write(f"Message: {account['message']}\n")
-                if 'response' in account:
-                    f.write(f"Spambot Response: {account['response']}\n")
-                f.write("-" * 30 + "\n")
-        
-        print(f"✅ Logged {len(frozen_accounts)} frozen/limited accounts to {filename}")
-        
-    except Exception as e:
-        print(f"❌ Error logging frozen accounts: {e}")
 
 @bot.message_handler(commands=['frozenstatus'])
 @require_channel_membership
@@ -376,125 +355,3 @@ def handle_frozen_status(message):
         bot.reply_to(message, report, parse_mode="Markdown")
     else:
         bot.reply_to(message, "⏳ **Frozen check is running...**\n\nPlease wait for completion.")
-
-@bot.message_handler(commands=['frozenlogs'])
-@require_channel_membership
-def handle_frozen_logs(message):
-    """List available frozen account log files"""
-    user_id = message.from_user.id
-    
-    if not is_admin(user_id):
-        bot.reply_to(message, "❌ You are not authorized to use this command.")
-        return
-    
-    try:
-        # Find all frozen account log files
-        import glob
-        log_files = glob.glob("frozen_accounts_*.log")
-        
-        if not log_files:
-            bot.reply_to(message, "📁 **No frozen account log files found**\n\nNo log files have been generated yet.")
-            return
-        
-        # Sort files by modification time (newest first)
-        log_files.sort(key=lambda x: os.path.getmtime(x), reverse=True)
-        
-        response = "📄 **Available Frozen Account Log Files:**\n\n"
-        
-        for i, log_file in enumerate(log_files[:10]):  # Show last 10 files
-            # Get file info
-            stat = os.stat(log_file)
-            size = stat.st_size
-            mod_time = datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M')
-            
-            # Extract country code from filename
-            country = log_file.split('_')[2] if len(log_file.split('_')) > 2 else "Unknown"
-            
-            response += f"• `{log_file}`\n"
-            response += f"  📍 Country: {country}\n"
-            response += f"  📅 Modified: {mod_time}\n"
-            response += f"  💾 Size: {size:,} bytes\n\n"
-        
-        if len(log_files) > 10:
-            response += f"... and {len(log_files) - 10} more files\n\n"
-        
-        response += "💡 **Tip:** Use `/getlog filename.log` to download a specific log file."
-        
-        bot.reply_to(message, response, parse_mode="Markdown")
-        
-    except Exception as e:
-        bot.reply_to(message, f"❌ **Error:** {str(e)}", parse_mode="Markdown")
-        print(f"❌ Error in frozen_logs for user {user_id}: {e}")
-
-@bot.message_handler(commands=['getlog'])
-@require_channel_membership
-def handle_get_log(message):
-    """Download a specific frozen account log file"""
-    user_id = message.from_user.id
-    
-    if not is_admin(user_id):
-        bot.reply_to(message, "❌ You are not authorized to use this command.")
-        return
-    
-    try:
-        # Parse the command: /getlog filename.log
-        text = message.text.strip()
-        parts = text.split()
-        
-        if len(parts) != 2:
-            bot.reply_to(
-                message,
-                "❌ **Usage:** `/getlog filename.log`\n\n"
-                "**Examples:**\n"
-                "• `/getlog frozen_accounts_+1_20241201_143022.log`\n"
-                "• `/getlog frozen_accounts_+44_20241201_143022.log`\n\n"
-                "💡 Use `/frozenlogs` to see available log files.",
-                parse_mode="Markdown"
-            )
-            return
-        
-        filename = parts[1].strip()
-        
-        # Validate filename
-        if not filename.startswith("frozen_accounts_") or not filename.endswith(".log"):
-            bot.reply_to(
-                message,
-                "❌ **Invalid filename!**\n\n"
-                "Filename must start with 'frozen_accounts_' and end with '.log'",
-                parse_mode="Markdown"
-            )
-            return
-        
-        # Check if file exists
-        if not os.path.exists(filename):
-            bot.reply_to(
-                message,
-                f"❌ **File not found:** `{filename}`\n\n"
-                "Use `/frozenlogs` to see available log files.",
-                parse_mode="Markdown"
-            )
-            return
-        
-        # Get file info
-        stat = os.stat(filename)
-        size = stat.st_size
-        mod_time = datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S')
-        
-        # Send the log file
-        with open(filename, 'rb') as log_file:
-            bot.send_document(
-                chat_id=user_id,
-                document=log_file,
-                caption=f"📄 **Frozen Account Log File**\n\n"
-                       f"📁 **File:** `{filename}`\n"
-                       f"💾 **Size:** {size:,} bytes\n"
-                       f"📅 **Modified:** {mod_time}\n\n"
-                       f"✅ Log file downloaded successfully.",
-                parse_mode="Markdown"
-            )
-        
-        print(f"✅ Admin {user_id} downloaded log file: {filename}")
-        
-    except Exception as e:
-        bot.reply_to(message, f"❌ **Error:** {str(e)}", parse_mode="Markdown")
-        print(f"❌ Error in get_log for user {user_id}: {e}")

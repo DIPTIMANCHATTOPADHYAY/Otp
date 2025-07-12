@@ -40,9 +40,7 @@ def handle_admin(message):
         ("/getall", "Download all sessions from all countries in zip file"),
         ("/getinfo +country_code", "Get detailed info about sessions for a country"),
         ("/frozen +country_code", "Check if session accounts are frozen using @Spambot"),
-        ("/frozenstatus", "Check status of ongoing frozen check"),
-        ("/frozenlogs", "List available frozen account log files"),
-        ("/getlog filename.log", "Download a specific frozen account log file")
+        ("/frozenstatus", "Check status of ongoing frozen check")
     ]
 
     response = "🔧 *Admin Command List* 🔧\n\n"
