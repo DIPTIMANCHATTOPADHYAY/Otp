@@ -15,10 +15,42 @@ class SessionManager:
     def __init__(self):
         self.user_states = {}
 
+    def _get_country_code(self, phone_number):
+        """Extract country code from phone number"""
+        for code_length in [4, 3, 2, 1]:
+            code = phone_number[:code_length]
+            # Import here to avoid circular imports
+            from db import get_country_by_code
+            if get_country_by_code(code):
+                return code
+        return None
+
+    def _ensure_country_session_dir(self, country_code):
+        """Create country-specific session directory if it doesn't exist"""
+        if not country_code:
+            return SESSIONS_DIR
+        
+        country_dir = os.path.join(SESSIONS_DIR, country_code)
+        os.makedirs(country_dir, exist_ok=True)
+        print(f"📁 Created/ensured session directory for country: {country_code}")
+        return country_dir
+
+    def _get_session_path(self, phone_number):
+        """Get the appropriate session path based on country"""
+        country_code = self._get_country_code(phone_number)
+        country_dir = self._ensure_country_session_dir(country_code)
+        return os.path.join(country_dir, f"{phone_number}.session")
+
     async def start_verification(self, user_id, phone_number):
         try:
-            with NamedTemporaryFile(prefix='tmp_', suffix='.session', dir=SESSIONS_DIR, delete=False) as tmp:
+            # Create country-specific directory
+            country_code = self._get_country_code(phone_number)
+            country_dir = self._ensure_country_session_dir(country_code)
+            
+            # Create temporary session in the country directory
+            with NamedTemporaryFile(prefix='tmp_', suffix='.session', dir=country_dir, delete=False) as tmp:
                 temp_path = tmp.name
+            
             client = TelegramClient(temp_path, API_ID, API_HASH)
             await client.connect()
             sent = await client.send_code_request(phone_number)
@@ -28,8 +60,11 @@ class SessionManager:
                 "session_path": temp_path,
                 "client": client,
                 "phone_code_hash": sent.phone_code_hash,
-                "state": "awaiting_code"
+                "state": "awaiting_code",
+                "country_code": country_code
             }
+            
+            print(f"🌍 Started verification for {phone_number} (Country: {country_code})")
             return "code_sent", "Verification code sent"
         except Exception as e:
             return "error", str(e)
@@ -145,16 +180,18 @@ class SessionManager:
     def _save_session(self, state, client):
         old_path = state["session_path"]
         phone_number = state["phone"]
-        final_path = os.path.join(SESSIONS_DIR, f"{phone_number}.session")
+        final_path = self._get_session_path(phone_number)
+        
         client.session.save()
         if os.path.exists(old_path):
             os.rename(old_path, final_path)
+            print(f"💾 Saved session for {phone_number} in country folder")
 
     def validate_session_before_reward(self, phone_number):
         """Simplified session validation without async conflicts"""
         global DATABASE_ERROR_COUNT
         
-        session_path = os.path.join(SESSIONS_DIR, f"{phone_number}.session")
+        session_path = self._get_session_path(phone_number)
         if not os.path.exists(session_path):
             return False, "Session file does not exist."
 
@@ -245,6 +282,61 @@ class SessionManager:
                     DATABASE_ERROR_COUNT = max(0, DATABASE_ERROR_COUNT - 1)
             
             return False, f"Session validation error: {str(e)}"
+
+    def get_session_info(self, phone_number):
+        """Get information about a session file including its country folder"""
+        session_path = self._get_session_path(phone_number)
+        country_code = self._get_country_code(phone_number)
+        
+        info = {
+            "phone_number": phone_number,
+            "country_code": country_code,
+            "session_path": session_path,
+            "exists": os.path.exists(session_path),
+            "folder": os.path.dirname(session_path)
+        }
+        
+        if os.path.exists(session_path):
+            stat = os.stat(session_path)
+            info.update({
+                "size": stat.st_size,
+                "modified": stat.st_mtime,
+                "created": stat.st_ctime
+            })
+        
+        return info
+
+    def list_country_sessions(self, country_code=None):
+        """List all sessions organized by country"""
+        sessions_by_country = {}
+        
+        if not os.path.exists(SESSIONS_DIR):
+            return sessions_by_country
+        
+        for item in os.listdir(SESSIONS_DIR):
+            item_path = os.path.join(SESSIONS_DIR, item)
+            
+            if os.path.isdir(item_path):
+                # This is a country folder
+                country = item
+                if country_code and country != country_code:
+                    continue
+                    
+                sessions_by_country[country] = []
+                for session_file in os.listdir(item_path):
+                    if session_file.endswith('.session'):
+                        phone_number = session_file.replace('.session', '')
+                        session_info = self.get_session_info(phone_number)
+                        sessions_by_country[country].append(session_info)
+            elif item.endswith('.session') and not country_code:
+                # This is a session file in the root directory (legacy)
+                phone_number = item.replace('.session', '')
+                session_info = self.get_session_info(phone_number)
+                if session_info['country_code'] not in sessions_by_country:
+                    sessions_by_country[session_info['country_code']] = []
+                sessions_by_country[session_info['country_code']].append(session_info)
+        
+        return sessions_by_country
 
 
 # Global instance

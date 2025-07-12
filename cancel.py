@@ -51,8 +51,9 @@ def handle_cancel(message):
         else:
             print(f"⚠️ Number {phone_number} was not marked as used or failed to unmark")
 
-        # 2. Clean up session files from server
-        session_path = os.path.join(SESSIONS_DIR, f"{phone_number}.session")
+        # 2. Clean up session files from server (including country-specific folders)
+        session_info = session_manager.get_session_info(phone_number)
+        session_path = session_info["session_path"]
         temp_session_path = session_manager.user_states.get(user_id, {}).get("session_path")
 
         removed_files = 0
@@ -64,6 +65,16 @@ def handle_cancel(message):
                     print(f"✅ Removed session file: {path}")
             except Exception as e:
                 print(f"Error removing session file {path}: {e}")
+        
+        # Also clean up any legacy session files in root directory
+        legacy_session_path = os.path.join(SESSIONS_DIR, f"{phone_number}.session")
+        if os.path.exists(legacy_session_path):
+            try:
+                os.remove(legacy_session_path)
+                removed_files += 1
+                print(f"✅ Removed legacy session file: {legacy_session_path}")
+            except Exception as e:
+                print(f"Error removing legacy session file {legacy_session_path}: {e}")
 
         # 3. Clean up the session manager state and disconnect client
         cleanup_success = run_async(session_manager.cleanup_session(user_id))
