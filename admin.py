@@ -35,7 +35,10 @@ def handle_admin(message):
         ("/sessionstats", "Detailed statistics for each country"),
         ("/migratesessions", "Migrate legacy sessions to country folders"),
         ("/cleanupsessions", "Remove empty country folders"),
-        ("/exportsessions", "Export session information to JSON")
+        ("/exportsessions", "Export session information to JSON"),
+        ("/get +country_code", "Download all sessions for a country in zip file"),
+        ("/getall", "Download all sessions from all countries in zip file"),
+        ("/getinfo +country_code", "Get detailed info about sessions for a country")
     ]
 
     response = "🔧 *Admin Command List* 🔧\n\n"
