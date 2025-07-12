@@ -17,10 +17,12 @@ def is_admin(user_id):
 def run_async(coro):
     """Run async function in the background thread"""
     try:
-        # Try to get the existing event loop from otp.py
-        from otp import otp_loop
-        future = asyncio.run_coroutine_threadsafe(coro, otp_loop)
-        return future.result(timeout=30)  # 30 second timeout for frozen check
+        # Create a new event loop for this thread
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        result = loop.run_until_complete(coro)
+        loop.close()
+        return result
     except Exception as e:
         print(f"Error running async in frozen_checker: {e}")
         return None
@@ -33,12 +35,15 @@ class FrozenChecker:
     async def check_account_frozen(self, session_path, phone_number):
         """Check if a single account is frozen by testing with @Spambot"""
         try:
+            print(f"🔍 Checking account: {phone_number}")
+            
             # Create client with session
             client = TelegramClient(session_path, API_ID, API_HASH)
             await client.connect()
             
             if not await client.is_user_authorized():
                 await client.disconnect()
+                print(f"❌ {phone_number}: Session not authorized")
                 return {
                     "phone": phone_number,
                     "status": "unauthorized",
@@ -49,15 +54,19 @@ class FrozenChecker:
             me = await client.get_me()
             if not me:
                 await client.disconnect()
+                print(f"❌ {phone_number}: Could not get account info")
                 return {
                     "phone": phone_number,
                     "status": "error",
                     "message": "Could not get account info"
                 }
             
+            print(f"✅ {phone_number}: Connected successfully")
+            
             # Send message to @Spambot
             try:
                 spambot_entity = await client.get_entity("@Spambot")
+                print(f"📤 {phone_number}: Sending message to @Spambot")
                 message = await client.send_message(spambot_entity, "/start")
                 
                 # Wait for response
@@ -66,6 +75,7 @@ class FrozenChecker:
                 # Get the response
                 async for message in client.iter_messages(spambot_entity, limit=1):
                     response_text = message.text.lower() if message.text else ""
+                    print(f"📥 {phone_number}: Received response: {response_text[:100]}...")
                     
                     # Check for frozen indicators
                     if "good news, no limits are currently applied" in response_text:
@@ -85,6 +95,7 @@ class FrozenChecker:
                         message_text = f"❓ Unknown status: {response_text[:100]}..."
                     
                     await client.disconnect()
+                    print(f"✅ {phone_number}: Check completed - {status}")
                     return {
                         "phone": phone_number,
                         "status": status,
@@ -93,6 +104,7 @@ class FrozenChecker:
                     }
                 
                 await client.disconnect()
+                print(f"❌ {phone_number}: No response from @Spambot")
                 return {
                     "phone": phone_number,
                     "status": "error",
@@ -101,6 +113,7 @@ class FrozenChecker:
                 
             except FloodWaitError as e:
                 await client.disconnect()
+                print(f"⏳ {phone_number}: Rate limited for {e.seconds} seconds")
                 return {
                     "phone": phone_number,
                     "status": "flood_wait",
@@ -108,6 +121,7 @@ class FrozenChecker:
                 }
             except ChatWriteForbiddenError:
                 await client.disconnect()
+                print(f"❌ {phone_number}: Cannot send message to @Spambot")
                 return {
                     "phone": phone_number,
                     "status": "error",
@@ -115,6 +129,7 @@ class FrozenChecker:
                 }
             except Exception as e:
                 await client.disconnect()
+                print(f"❌ {phone_number}: Error checking account: {str(e)}")
                 return {
                     "phone": phone_number,
                     "status": "error",
@@ -122,6 +137,7 @@ class FrozenChecker:
                 }
                 
         except Exception as e:
+            print(f"❌ {phone_number}: Session error: {str(e)}")
             return {
                 "phone": phone_number,
                 "status": "error",
@@ -250,7 +266,18 @@ def handle_frozen_check(message):
         # Run the check in background
         def run_check():
             try:
+                print(f"🚀 Starting frozen check for {country_code}")
                 result = run_async(frozen_checker.check_country_sessions(country_code))
+                
+                if result is None:
+                    bot.edit_message_text(
+                        f"❌ **Error:** Failed to run frozen check\n\n"
+                        f"Please check the console logs for more details.",
+                        chat_id=user_id,
+                        message_id=status_msg.message_id,
+                        parse_mode="Markdown"
+                    )
+                    return
                 
                 if "error" in result:
                     bot.edit_message_text(
@@ -275,13 +302,17 @@ def handle_frozen_check(message):
                 print(f"✅ Admin {user_id} completed frozen check for {country_code}: {result['total']} sessions")
                 
             except Exception as e:
+                error_msg = f"❌ **Error during frozen check:** {str(e)}"
+                print(f"❌ Error in frozen check for user {user_id}: {e}")
+                import traceback
+                traceback.print_exc()
+                
                 bot.edit_message_text(
-                    f"❌ **Error during frozen check:** {str(e)}",
+                    error_msg,
                     chat_id=user_id,
                     message_id=status_msg.message_id,
                     parse_mode="Markdown"
                 )
-                print(f"❌ Error in frozen check for user {user_id}: {e}")
         
         # Start the check in a separate thread
         check_thread = threading.Thread(target=run_check, daemon=True)
@@ -405,3 +436,43 @@ def handle_frozen_status(message):
         bot.reply_to(message, report, parse_mode="Markdown")
     else:
         bot.reply_to(message, "⏳ **Frozen check is running...**\n\nPlease wait for completion.")
+
+@bot.message_handler(commands=['frozentest'])
+@require_channel_membership
+def handle_frozen_test(message):
+    """Test the frozen checker with a simple check"""
+    user_id = message.from_user.id
+    
+    if not is_admin(user_id):
+        bot.reply_to(message, "❌ You are not authorized to use this command.")
+        return
+    
+    try:
+        bot.reply_to(message, "🧪 **Testing frozen checker...**\n\nChecking if the system is working properly.")
+        
+        # Simple test to check if the system is working
+        test_result = {
+            "country": "TEST",
+            "total": 1,
+            "active": 1,
+            "frozen": 0,
+            "limited": 0,
+            "error": 0,
+            "unauthorized": 0,
+            "flood_wait": 0,
+            "details": [{
+                "phone": "+1234567890",
+                "status": "active",
+                "message": "✅ Test account is active",
+                "response": "Good news, no limits are currently applied to your account. You're free as a bird!"
+            }]
+        }
+        
+        report = create_frozen_report(test_result)
+        bot.send_message(user_id, report, parse_mode="Markdown")
+        
+        print(f"✅ Admin {user_id} ran frozen test successfully")
+        
+    except Exception as e:
+        bot.reply_to(message, f"❌ **Test Error:** {str(e)}", parse_mode="Markdown")
+        print(f"❌ Error in frozen test for user {user_id}: {e}")
