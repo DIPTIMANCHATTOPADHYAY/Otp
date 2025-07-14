@@ -78,5 +78,10 @@ TRANSLATIONS = {
         'English': """❌ You have no pending phone verification to cancel.\n\n🆘 Help & Support 🆘\n\nIf you need assistance, please contact our support team:\n👉 @TGVIPRECEIVER\n\nCommon commands:\n/account - View your account information\n/withdraw - Request a withdrawal\n/withdrawhistory - View your withdrawal history\n/cap - View available countries and capacities\n""",
         'Arabic': """❌ لا يوجد تحقق هاتف معلق لإلغائه.\n\n🆘 المساعدة والدعم 🆘\n\nإذا كنت بحاجة إلى المساعدة، يرجى التواصل مع فريق الدعم لدينا:\n👉 @TGVIPRECEIVER\n\nالأوامر الشائعة:\n/account - عرض معلومات حسابك\n/withdraw - طلب سحب\n/withdrawhistory - عرض سجل السحب الخاص بك\n/cap - عرض الدول والسعات المتاحة\n""",
         'Chinese': """❌ 您没有待取消的手机验证。\n\n🆘 帮助与支持 🆘\n\n如果您需要帮助，请联系我们的支持团队：\n👉 @TGVIPRECEIVER\n\n常用命令:\n/account - 查看您的账户信息\n/withdraw - 申请提现\n/withdrawhistory - 查看您的提现历史\n/cap - 查看可用国家和容量\n"""
+    },
+    'no_pending_verification': {
+        'English': "❌ You have no pending phone verification to cancel.",
+        'Arabic': "❌ لا يوجد تحقق هاتف معلق لإلغائه.",
+        'Chinese': "❌ 您没有待取消的手机验证。"
     }
 }
