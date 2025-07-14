@@ -1,4 +1,4 @@
-from db import get_country_capacities, get_user
+from db import get_country_capacities
 from utils import require_channel_membership
 from bot_init import bot
 
@@ -206,26 +206,12 @@ def get_country_info(code):
 @bot.message_handler(commands=['cap'])
 @require_channel_membership
 def handle_cap(message):
-    user_id = message.from_user.id
-    user = get_user(user_id) or {}
-    lang = user.get('language', 'English')
-    capacities = get_country_capacities()
-    texts = {
-        'English': "🌍 *Country Capacities:*\n",
-        'Arabic': "🌍 *سعة الدول:*\n",
-        'Chinese': "🌍 *国家容量：*\n"
-    }
-    text = texts.get(lang, texts['English'])
-    for c in capacities:
-        code = c.get('country_code', '')
+    countries = get_country_capacities()
+    text = "🔋 *Current Capacity Status*\n"
+    text += "───────────────\n"
+    for c in countries:
+        code = c['country_code']
         cap = c.get('capacity', 0)
-        info = COUNTRY_INFO.get(code, {'name': code, 'flag': ''})
-        name = info['name']
-        flag = info['flag']
-        if lang == 'Arabic':
-            text += f"{flag} {name}: السعة {cap}\n"
-        elif lang == 'Chinese':
-            text += f"{flag} {name}: 容量 {cap}\n"
-        else:
-            text += f"{flag} {name}: capacity {cap}\n"
+        text += f"- {code}: capacity {cap}\n"
+    text += f"\n🌍 *Total Countries*: {len(countries)}"
     bot.send_message(message.chat.id, text, parse_mode="Markdown")
