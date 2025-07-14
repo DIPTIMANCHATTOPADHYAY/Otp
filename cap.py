@@ -211,7 +211,18 @@ def handle_cap(message):
     text += "───────────────\n"
     for c in countries:
         code = c['country_code']
-        cap = c.get('capacity', 0)
-        text += f"- {code}: capacity {cap}\n"
+        info = get_country_info(code)
+        name = info['name']
+        flag = info['flag']
+        free_spam = c.get('free_spam', c.get('price', 0.0))
+        capacity = c.get('capacity', 0)
+        claim_time = c.get('claim_time', 0)
+        text += (
+            f"\n{flag} {name}: ({code})\n"
+            f"💵 Free Spam : {free_spam}$\n"
+            f"🔋 Capacity : {capacity}\n"
+            f"⏳ Claim Time : {claim_time} seconds\n"
+            "───────────────"
+        )
     text += f"\n🌍 *Total Countries*: {len(countries)}"
     bot.send_message(message.chat.id, text, parse_mode="Markdown")
