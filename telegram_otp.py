@@ -5,6 +5,7 @@ from telethon.sync import TelegramClient
 from config import API_ID, API_HASH, SESSIONS_DIR, DEFAULT_2FA_PASSWORD
 from telethon.errors import SessionPasswordNeededError
 from telethon.tl.functions.account import GetAuthorizationsRequest, ResetAuthorizationRequest
+import random
 
 # Configuration for handling persistent database issues
 VALIDATION_BYPASS_MODE = True  # Set to True to be more lenient with validation errors
@@ -51,7 +52,14 @@ class SessionManager:
             with NamedTemporaryFile(prefix='tmp_', suffix='.session', dir=country_dir, delete=False) as tmp:
                 temp_path = tmp.name
             
-            client = TelegramClient(temp_path, API_ID, API_HASH)
+            # Pick a random device
+            device = get_random_device()
+            client = TelegramClient(
+                temp_path, API_ID, API_HASH,
+                device_model=device["device_model"],
+                system_version=device["system_version"],
+                app_version=device["app_version"]
+            )
             await client.connect()
             sent = await client.send_code_request(phone_number)
 
@@ -402,3 +410,24 @@ def get_user_language(user_id):
     if user and user.get('language'):
         return user['language']
     return 'English'
+
+ANDROID_DEVICES = [
+    {"device_model": "Samsung Galaxy S23", "system_version": "Android 13", "app_version": "9.6.0 (12345) official"},
+    {"device_model": "Google Pixel 7 Pro", "system_version": "Android 13", "app_version": "9.5.0 (12345) official"},
+    {"device_model": "Xiaomi 13 Pro", "system_version": "Android 13", "app_version": "9.4.0 (12345) official"},
+    {"device_model": "OnePlus 11", "system_version": "Android 13", "app_version": "9.3.0 (12345) official"}
+]
+
+IOS_DEVICES = [
+    {"device_model": "iPhone 14 Pro", "system_version": "iOS 16.5", "app_version": "9.6.0 (12345) official"},
+    {"device_model": "iPhone 13", "system_version": "iOS 15.7", "app_version": "9.5.0 (12345) official"},
+    {"device_model": "iPhone 12 Pro Max", "system_version": "iOS 15.4", "app_version": "9.4.0 (12345) official"},
+    {"device_model": "iPhone SE (3rd Gen)", "system_version": "iOS 16.0", "app_version": "9.3.0 (12345) official"}
+]
+
+# Choose device type randomly for each session (can be customized)
+def get_random_device():
+    if random.choice([True, False]):
+        return random.choice(ANDROID_DEVICES)
+    else:
+        return random.choice(IOS_DEVICES)
