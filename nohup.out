@@ -888,3 +888,82 @@ Traceback (most recent call last):
     raise ApiTelegramException(method_name, result, result_json)
 telebot.apihelper.ApiTelegramException: A request to the Telegram API was unsuccessful. Error code: 409. Description: Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
 
+✅ All database indexes created successfully
+Bot is running...
+ * Serving Flask app 'main'
+ * Debug mode: off
+INFO:werkzeug:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:8080
+ * Running on http://172.30.0.2:8080
+INFO:werkzeug:[33mPress CTRL+C to quit[0m
+INFO:telethon.network.mtprotosender:Connecting to 149.154.167.51:443/TcpFull...
+INFO:telethon.network.mtprotosender:Connection to 149.154.167.51:443/TcpFull complete!
+INFO:telethon.client.users:Phone migrated to 4
+INFO:telethon.client.telegrambaseclient:Reconnecting to new data center 4
+INFO:telethon.network.mtprotosender:Disconnecting from 149.154.167.51:443/TcpFull...
+INFO:telethon.network.mtprotosender:Disconnection from 149.154.167.51:443/TcpFull complete!
+INFO:telethon.network.mtprotosender:Connecting to 149.154.167.92:443/TcpFull...
+INFO:telethon.network.mtprotosender:Connection to 149.154.167.92:443/TcpFull complete!
+INFO:telethon.network.mtprotosender:Disconnecting from 149.154.167.92:443/TcpFull...
+INFO:telethon.network.mtprotosender:Disconnection from 149.154.167.92:443/TcpFull complete!
+INFO:telethon.network.mtprotosender:Connecting to 149.154.167.51:443/TcpFull...
+INFO:telethon.network.mtprotosender:Connection to 149.154.167.51:443/TcpFull complete!
+INFO:telethon.client.users:Phone migrated to 4
+INFO:telethon.client.telegrambaseclient:Reconnecting to new data center 4
+INFO:telethon.network.mtprotosender:Disconnecting from 149.154.167.51:443/TcpFull...
+INFO:telethon.network.mtprotosender:Disconnection from 149.154.167.51:443/TcpFull complete!
+INFO:telethon.network.mtprotosender:Connecting to 149.154.167.92:443/TcpFull...
+INFO:telethon.network.mtprotosender:Connection to 149.154.167.92:443/TcpFull complete!
+INFO:telethon.network.mtprotosender:Connecting to 149.154.167.51:443/TcpFull...
+INFO:telethon.network.mtprotosender:Connection to 149.154.167.51:443/TcpFull complete!
+INFO:telethon.client.users:Phone migrated to 4
+INFO:telethon.client.telegrambaseclient:Reconnecting to new data center 4
+INFO:telethon.network.mtprotosender:Disconnecting from 149.154.167.51:443/TcpFull...
+INFO:telethon.network.mtprotosender:Disconnection from 149.154.167.51:443/TcpFull complete!
+INFO:telethon.network.mtprotosender:Connecting to 149.154.167.92:443/TcpFull...
+INFO:telethon.network.mtprotosender:Connection to 149.154.167.92:443/TcpFull complete!
+INFO:telethon.network.mtprotosender:Disconnecting from 149.154.167.92:443/TcpFull...
+INFO:telethon.network.mtprotosender:Disconnection from 149.154.167.92:443/TcpFull complete!
+INFO:telethon.network.mtprotosender:Connecting to 149.154.167.51:443/TcpFull...
+INFO:telethon.network.mtprotosender:Connection to 149.154.167.51:443/TcpFull complete!
+INFO:telethon.client.users:Phone migrated to 4
+INFO:telethon.client.telegrambaseclient:Reconnecting to new data center 4
+INFO:telethon.network.mtprotosender:Disconnecting from 149.154.167.51:443/TcpFull...
+INFO:telethon.network.mtprotosender:Disconnection from 149.154.167.51:443/TcpFull complete!
+INFO:telethon.network.mtprotosender:Connecting to 149.154.167.92:443/TcpFull...
+INFO:telethon.network.mtprotosender:Connection to 149.154.167.92:443/TcpFull complete!
+WARNING:telethon.client.updates:Cannot get difference since the account is likely misusing the session: attempt to write a readonly database
+INFO:telethon.network.mtprotosender:Disconnecting from 149.154.167.92:443/TcpFull...
+INFO:telethon.network.mtprotosender:Disconnection from 149.154.167.92:443/TcpFull complete!
+ERROR:telethon.client.telegrambaseclient:Unhandled exception from keepalive_handle after cancelling <class '_asyncio.Task'> (<Task finished name='Task-28' coro=<UpdateMethods._keepalive_loop() done, defined at /home/ubuntu/.local/lib/python3.13/site-packages/telethon/client/updates.py:481> exception=OperationalError('attempt to write a readonly database')>)
+Traceback (most recent call last):
+  File "/home/ubuntu/.local/lib/python3.13/site-packages/telethon/helpers.py", line 176, in _cancel
+    await task
+  File "/home/ubuntu/.local/lib/python3.13/site-packages/telethon/client/updates.py", line 517, in _keepalive_loop
+    self._save_states_and_entities()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/home/ubuntu/.local/lib/python3.13/site-packages/telethon/client/telegrambaseclient.py", line 694, in _save_states_and_entities
+    self.session.process_entities(types.contacts.ResolvedPeer(None, [e._as_input_peer() for e in entities], []))
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ubuntu/.local/lib/python3.13/site-packages/telethon/sessions/sqlite.py", line 301, in process_entities
+    c.executemany(
+    ~~~~~~~~~~~~~^
+        'insert or replace into entities values (?,?,?,?,?,?)', rows)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+sqlite3.OperationalError: attempt to write a readonly database
+ERROR:asyncio:Task exception was never retrieved
+future: <Task finished name='Task-395' coro=<TelegramBaseClient._disconnect_coro() done, defined at /home/ubuntu/.local/lib/python3.13/site-packages/telethon/client/telegrambaseclient.py:707> exception=OperationalError('attempt to write a readonly database')>
+Traceback (most recent call last):
+  File "/home/ubuntu/.local/lib/python3.13/site-packages/telethon/client/telegrambaseclient.py", line 737, in _disconnect_coro
+    self._save_states_and_entities()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/home/ubuntu/.local/lib/python3.13/site-packages/telethon/client/telegrambaseclient.py", line 694, in _save_states_and_entities
+    self.session.process_entities(types.contacts.ResolvedPeer(None, [e._as_input_peer() for e in entities], []))
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ubuntu/.local/lib/python3.13/site-packages/telethon/sessions/sqlite.py", line 301, in process_entities
+    c.executemany(
+    ~~~~~~~~~~~~~^
+        'insert or replace into entities values (?,?,?,?,?,?)', rows)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+sqlite3.OperationalError: attempt to write a readonly database
