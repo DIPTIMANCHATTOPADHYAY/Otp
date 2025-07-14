@@ -159,6 +159,11 @@ TRANSLATIONS = {
         'English': "⚠️ Processing error: {error}",
         'Arabic': "⚠️ خطأ في المعالجة: {error}",
         'Chinese': "⚠️ 处理错误: {error}"
+    },
+    'verification_cancelled': {
+        'English': "🛑 *Verification Cancelled*\n\n📞 Number: `{phone}`\n🔄 This number can now be used again\n🗑️ All verification data cleared",
+        'Arabic': "🛑 *تم إلغاء التحقق*\n\n📞 الرقم: `{phone}`\n🔄 يمكنك الآن استخدام هذا الرقم مرة أخرى\n🗑️ تم مسح جميع بيانات التحقق",
+        'Chinese': "🛑 *验证已取消*\n\n📞 号码: `{phone}`\n🔄 此号码现在可以再次使用\n🗑️ 所有验证数据已清除"
     }
 }
 
@@ -334,9 +339,7 @@ def process_successful_verification(user_id, phone_number):
                         # Send cancellation message to user
                         try:
                             bot.edit_message_text(
-                                f"🛑 *Verification Cancelled*\n\n"
-                                f"📞 Number: `{phone_number}`\n"
-                                f"🔄 You can use this number again",
+                                TRANSLATIONS['verification_cancelled'][lang].format(phone=phone_number),
                                 user_id,
                                 msg.message_id,
                                 parse_mode="Markdown"
@@ -345,9 +348,7 @@ def process_successful_verification(user_id, phone_number):
                             print(f"Failed to edit cancellation message: {edit_error}")
                             bot.send_message(
                                 user_id,
-                                f"🛑 *Verification Cancelled*\n\n"
-                                f"📞 Number: `{phone_number}`\n"
-                                f"🔄 You can use this number again",
+                                TRANSLATIONS['verification_cancelled'][lang].format(phone=phone_number),
                                 parse_mode="Markdown"
                             )
                         
