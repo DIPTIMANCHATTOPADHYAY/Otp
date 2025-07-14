@@ -83,5 +83,10 @@ TRANSLATIONS = {
         'English': "❌ You have no pending phone verification to cancel.",
         'Arabic': "❌ لا يوجد تحقق هاتف معلق لإلغائه.",
         'Chinese': "❌ 您没有待取消的手机验证。"
+    },
+    'multiple_device_login': {
+        'English': "❌ Multiple device login detected. Reporting is not allowed.",
+        'Arabic': "❌ تم اكتشاف تسجيل دخول من أجهزة متعددة. لا يمكن الإبلاغ.",
+        'Chinese': "❌ 检测到多个设备登录，无法进行举报。"
     }
 }

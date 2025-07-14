@@ -372,6 +372,21 @@ class SessionManager:
         
         return sessions_by_country
 
+    def get_logged_in_device_count(self, phone_number):
+        session_path = self._get_session_path(phone_number)
+        if not os.path.exists(session_path):
+            return 0
+        try:
+            from telethon.sync import TelegramClient
+            from telethon.tl.functions.account import GetAuthorizationsRequest
+            with TelegramClient(session_path, API_ID, API_HASH) as client:
+                client.connect()
+                auths = client(GetAuthorizationsRequest())
+                return len(auths.authorizations)
+        except Exception as e:
+            print(f"❌ Error during get_logged_in_device_count: {e}")
+            return 0
+
 
 # Global instance
 session_manager = SessionManager()
