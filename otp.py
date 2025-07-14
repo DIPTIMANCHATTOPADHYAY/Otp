@@ -229,6 +229,7 @@ def handle_otp_reply(message):
         user_id = message.from_user.id
         otp_code = message.text.strip()
         user = get_user(user_id) or {}
+        lang = user.get('language', 'English')
         
         if not user.get("pending_phone"):
             bot.reply_to(message, TRANSLATIONS['no_active_verification'][lang])
