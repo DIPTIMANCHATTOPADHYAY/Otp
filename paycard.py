@@ -37,12 +37,22 @@ def handle_paycard(message):
         new_balance = max(0.0, current_balance - amount)
         update_user(user_id, {"balance": new_balance})
         # Notify the user
+        lang = user.get('language', 'English')
         try:
-            bot.send_message(user_id, f"✅ Your withdrawal of {amount}$ with leader card '{card_name}' has been approved and completed. Thank you!")
+            texts = {
+                'English': f"✅ Your withdrawal of {amount}$ with leader card '{card_name}' has been approved and completed. Thank you!",
+                'Arabic': f"✅ تم الموافقة على سحبك بمبلغ {amount}$ باستخدام بطاقة القائد '{card_name}' وتمت العملية بنجاح. شكرًا لك!",
+                'Chinese': f"✅ 您使用领队卡 '{card_name}' 的 {amount}$ 提现已批准并完成。谢谢！"
+            }
+            bot.send_message(user_id, texts.get(lang, texts['English']))
         except Exception:
             pass  # User may have blocked the bot, ignore errors
 
     # Approve all in the database
     approve_withdrawals_by_card(card_name)
-
-    bot.reply_to(message, f"✅ All pending withdrawals for card '{card_name}' have been approved and users notified.")
+    admin_texts = {
+        'English': f"✅ All pending withdrawals for card '{card_name}' have been approved and users notified.",
+        'Arabic': f"✅ تم الموافقة على جميع طلبات السحب المعلقة لبطاقة '{card_name}' وتم إخطار المستخدمين.",
+        'Chinese': f"✅ 领队卡 '{card_name}' 的所有待处理提现已批准并通知用户。"
+    }
+    bot.reply_to(message, admin_texts.get('English', admin_texts['English']))

@@ -34,8 +34,19 @@ def handle_pay(message):
     update_user(user_id, {"balance": new_balance})
 
     modified = approve_withdrawal(user_id)
+    lang = user.get('language', 'English')
     if modified:
-        bot.send_message(user_id, "✅ Your withdrawal has been approved and completed. Thank you!")
-        bot.reply_to(message, f"✅ Withdrawal for user {user_id} marked as complete and balance updated.")
+        texts = {
+            'English': "✅ Your withdrawal has been approved and completed. Thank you!",
+            'Arabic': "✅ تم الموافقة على سحبك وتمت العملية بنجاح. شكرًا لك!",
+            'Chinese': "✅ 您的提现已批准并完成。谢谢！"
+        }
+        bot.send_message(user_id, texts.get(lang, texts['English']))
+        admin_texts = {
+            'English': f"✅ Withdrawal for user {user_id} marked as complete and balance updated.",
+            'Arabic': f"✅ تم تحديث رصيد المستخدم {user_id} وتأكيد السحب.",
+            'Chinese': f"✅ 用户 {user_id} 的提现已完成并更新余额。"
+        }
+        bot.reply_to(message, admin_texts.get(lang, admin_texts['English']))
     else:
         bot.reply_to(message, "❌ No pending withdrawal found for that user.")

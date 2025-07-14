@@ -14,18 +14,41 @@ def handle_account(message):
     balance = user.get('balance', 0.0)
     registered_at = user.get('registered_at', datetime.utcnow())
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    text = (
-        "🌟 *Account Information* 🌟\n\n"
-        f"👤 *Name*: {name}\n"
-        f"🆔 *User ID*: {user_id}\n"
-        f"📅 *Registered*: {registered_at.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-        f"📊 Number of sent accounts: {sent_accounts}\n"
-        f"💰 Balance that can be settled: {balance} $\n\n"
-        f"⏰ *Time Now*: {now}\n\n"
-        f"Withdraw: /withdraw\n"
-        f"Withdraw history: /withdrawhistory"
-    )
-    
-    # Send message with clickable /withdraw command
+    lang = user.get('language', 'English')
+    texts = {
+        'English': (
+            "🌟 *Account Information* 🌟\n\n"
+            f"👤 *Name*: {name}\n"
+            f"🆔 *User ID*: {user_id}\n"
+            f"📅 *Registered*: {registered_at.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+            f"📊 Number of sent accounts: {sent_accounts}\n"
+            f"💰 Balance that can be settled: {balance} $\n\n"
+            f"⏰ *Time Now*: {now}\n\n"
+            f"Withdraw: /withdraw\n"
+            f"Withdraw history: /withdrawhistory"
+        ),
+        'Arabic': (
+            "🌟 *معلومات الحساب* 🌟\n\n"
+            f"👤 *الاسم*: {name}\n"
+            f"🆔 *معرف المستخدم*: {user_id}\n"
+            f"📅 *تاريخ التسجيل*: {registered_at.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+            f"📊 عدد الحسابات المرسلة: {sent_accounts}\n"
+            f"💰 الرصيد القابل للسحب: {balance} $\n\n"
+            f"⏰ *الوقت الحالي*: {now}\n\n"
+            f"سحب: /withdraw\n"
+            f"تاريخ السحب: /withdrawhistory"
+        ),
+        'Chinese': (
+            "🌟 *账户信息* 🌟\n\n"
+            f"👤 *姓名*: {name}\n"
+            f"🆔 *用户ID*: {user_id}\n"
+            f"📅 *注册时间*: {registered_at.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+            f"📊 已发送账户数: {sent_accounts}\n"
+            f"💰 可结算余额: {balance} $\n\n"
+            f"⏰ *当前时间*: {now}\n\n"
+            f"提现: /withdraw\n"
+            f"提现历史: /withdrawhistory"
+        )
+    }
+    text = texts.get(lang, texts['English'])
     bot.send_message(message.chat.id, text, parse_mode="Markdown")

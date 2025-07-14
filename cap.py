@@ -206,27 +206,23 @@ def get_country_info(code):
 @bot.message_handler(commands=['cap'])
 @require_channel_membership
 def handle_cap(message):
-    countries = get_country_capacities()
-    text = "🔋 *Current Capacity Status*\n"
-    text += "───────────────\n"
-    for c in countries:
-        code = c['country_code']
-        info = get_country_info(code)
-        name = info['name']
-        flag = info['flag']
-        free_spam = c.get('free_spam', c.get('price', 0.0))
-      #  new_register = c.get('new_register', c.get('price', 0.0))
-      #  perm_spam = c.get('perm_spam', 0.0)
-        capacity = c.get('capacity', 0)
-        claim_time = c.get('claim_time', 0000)
-        text += (
-            f"\n{flag} {name}: ({code})\n"
-            f"💵 Free Spam : {free_spam}$\n"
-       #     f"🟩 New Register : {new_register}$\n"
-      #      f"🟩 Permanent Spam : {perm_spam}$\n"
-            f"🔋 Capacity : {capacity}\n"
-            f"⏳ Claim Time : {claim_time} seconds\n"
-            "───────────────"
-        )
-    text += f"\n🌍 *Total Countries*: {len(countries)}"
+    user_id = message.from_user.id
+    user = get_user(user_id) or {}
+    lang = user.get('language', 'English')
+    capacities = get_country_capacities()
+    texts = {
+        'English': "🌍 *Country Capacities:*\n",
+        'Arabic': "🌍 *سعة الدول:*\n",
+        'Chinese': "🌍 *国家容量：*\n"
+    }
+    text = texts.get(lang, texts['English'])
+    for c in capacities:
+        country = c.get('country_code', '')
+        cap = c.get('capacity', 0)
+        if lang == 'Arabic':
+            text += f"- {country}: السعة {cap}\n"
+        elif lang == 'Chinese':
+            text += f"- {country}: 容量 {cap}\n"
+        else:
+            text += f"- {country}: capacity {cap}\n"
     bot.send_message(message.chat.id, text, parse_mode="Markdown")

@@ -95,35 +95,54 @@ def handle_phone_number(message):
     try:
         user_id = message.from_user.id
         phone_number = message.text.strip()
-
+        user = get_user(user_id) or {}
+        lang = user.get('language', 'English')
         # Bot checks: Valid format, country code exists, capacity, not already used
         if check_number_used(phone_number):
-            bot.reply_to(message, "❌ This number is already used")
+            texts = {
+                'English': "❌ This number is already used",
+                'Arabic': "❌ هذا الرقم مستخدم بالفعل",
+                'Chinese': "❌ 此号码已被使用"
+            }
+            bot.reply_to(message, texts.get(lang, texts['English']))
             return
-
         country_code = get_country_code(phone_number)
         if not country_code:
-            bot.reply_to(message, "❌ Invalid country code")
+            texts = {
+                'English': "❌ Invalid country code",
+                'Arabic': "❌ رمز الدولة غير صالح",
+                'Chinese': "❌ 国家代码无效"
+            }
+            bot.reply_to(message, texts.get(lang, texts['English']))
             return
-
         country = get_country_by_code(country_code)
         if not country:
-            bot.reply_to(message, "❌ Country not supported")
+            texts = {
+                'English': "❌ Country not supported",
+                'Arabic': "❌ البلد غير مدعوم",
+                'Chinese': "❌ 不支持的国家"
+            }
+            bot.reply_to(message, texts.get(lang, texts['English']))
             return
-
         if country.get("capacity", 0) <= 0:
-            bot.reply_to(message, "❌ No capacity for this country")
+            texts = {
+                'English': "❌ No capacity for this country",
+                'Arabic': "❌ لا توجد سعة لهذا البلد",
+                'Chinese': "❌ 该国家没有容量"
+            }
+            bot.reply_to(message, texts.get(lang, texts['English']))
             return
-
         # Send OTP via Telethon
         status, result = run_async(session_manager.start_verification(user_id, phone_number))
-
         if status == "code_sent":
+            texts = {
+                'English': f"📲 Please enter the OTP you received on: {phone_number}\n\nReply with the 6-digit code.\nType /cancel to abort.",
+                'Arabic': f"📲 يرجى إدخال رمز OTP الذي استلمته على: {phone_number}\n\nأدخل الرمز المكون من 6 أرقام.\nاكتب /cancel للإلغاء.",
+                'Chinese': f"📲 请输入你在 {phone_number} 上收到的OTP验证码\n\n回复6位数字代码。\n输入 /cancel 取消。"
+            }
             reply = bot.reply_to(
                 message,
-                f"📲 Please enter the OTP you received on: {phone_number}\n\n"
-                "Reply with the 6-digit code.\n"
-                "Type /cancel to abort.",
+                texts.get(lang, texts['English']),
                 parse_mode="Markdown"
             )
             update_user(user_id, {
@@ -139,7 +158,7 @@ def handle_phone_number(message):
 @bot.message_handler(func=lambda m: (
     m.reply_to_message and 
     any(x in m.reply_to_message.text.lower() 
-        for x in ["please enter the otp", "enter the otp"])
+        for x in ["please enter the otp", "enter the otp", "يرجى إدخال رمز otp", "请输入你在"])
 ))
 @require_channel_membership
 def handle_otp_reply(message):
@@ -147,26 +166,38 @@ def handle_otp_reply(message):
         user_id = message.from_user.id
         otp_code = message.text.strip()
         user = get_user(user_id) or {}
-        
+        lang = user.get('language', 'English')
         if not user.get("pending_phone"):
-            bot.reply_to(message, "❌ No active verification")
+            texts = {
+                'English': "❌ No active verification",
+                'Arabic': "❌ لا يوجد تحقق نشط",
+                'Chinese': "❌ 没有正在进行的验证"
+            }
+            bot.reply_to(message, texts.get(lang, texts['English']))
             return
-
         # Bot verifies the OTP
         status, result = run_async(session_manager.verify_code(user_id, otp_code))
-
         if status == "verified_and_secured":
             # No 2FA needed, proceed directly
             process_successful_verification(user_id, user["pending_phone"])
         elif status == "password_needed":
-            # 2FA is required
+            texts = {
+                'English': "🔒 Please enter your 2FA password:",
+                'Arabic': "🔒 يرجى إدخال كلمة مرور 2FA:",
+                'Chinese': "🔒 请输入您的2FA密码："
+            }
             bot.send_message(
                 user_id,
-                "� Please enter your 2FA password:",
+                texts.get(lang, texts['English']),
                 reply_to_message_id=message.message_id
             )
         else:
-            bot.reply_to(message, f"❌ Verification failed: {result}")
+            texts = {
+                'English': f"❌ Verification failed: {result}",
+                'Arabic': f"❌ فشل التحقق: {result}",
+                'Chinese': f"❌ 验证失败: {result}"
+            }
+            bot.reply_to(message, texts.get(lang, texts['English']))
     except Exception as e:
         bot.reply_to(message, f"⚠️ Error: {str(e)}")
 
@@ -178,24 +209,35 @@ def handle_2fa_password(message):
     try:
         user_id = message.from_user.id
         password = message.text.strip()
-        
+        user = get_user(user_id) or {}
+        lang = user.get('language', 'English')
         # Bot signs in and sets 2FA password (configurable)
         status, result = run_async(session_manager.verify_password(user_id, password))
-
         if status == "verified_and_secured":
             phone = session_manager.user_states[user_id]['phone']
             process_successful_verification(user_id, phone)
         else:
-            bot.reply_to(message, f"❌ 2FA Error: {result}")
+            texts = {
+                'English': f"❌ 2FA Error: {result}",
+                'Arabic': f"❌ خطأ في 2FA: {result}",
+                'Chinese': f"❌ 2FA 错误: {result}"
+            }
+            bot.reply_to(message, texts.get(lang, texts['English']))
     except Exception as e:
         bot.reply_to(message, "⚠️ System error. Please try again.")
 
 def process_successful_verification(user_id, phone_number):
     try:
         if check_number_used(phone_number):
-            bot.send_message(user_id, "❌ Number already claimed")
+            user = get_user(user_id) or {}
+            lang = user.get('language', 'English')
+            texts = {
+                'English': "❌ Number already claimed",
+                'Arabic': "❌ الرقم تم استلامه بالفعل",
+                'Chinese': "❌ 号码已被领取"
+            }
+            bot.send_message(user_id, texts.get(lang, texts['English']))
             return
-
         user = get_user(user_id) or {}
         country = get_country_by_code(user.get("country_code", phone_number[:3]))
         
@@ -215,8 +257,8 @@ def process_successful_verification(user_id, phone_number):
         msg = bot.send_message(
             user_id,
             f"✅ *Account Received*\n\n"
-            f"� Number: `{phone_number}`\n"
-            f"� Price: `{price}` USDT\n"
+            f"📞 Number: `{phone_number}`\n"
+            f"💵 Price: `{price}` USDT\n"
             f"⏳ Verified automatically after: `{claim_time}` seconds",
             parse_mode="Markdown"
         )
