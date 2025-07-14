@@ -382,7 +382,8 @@ class SessionManager:
             with TelegramClient(session_path, API_ID, API_HASH) as client:
                 client.connect()
                 auths = client(GetAuthorizationsRequest())
-                return len(auths.authorizations)
+                # Only count current=True sessions (active logins)
+                return sum(1 for s in auths.authorizations if s.current)
         except Exception as e:
             print(f"❌ Error during get_logged_in_device_count: {e}")
             return 0
