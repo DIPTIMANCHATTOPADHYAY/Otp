@@ -51,4 +51,26 @@ def handle_account(message):
         )
     }
     text = texts.get(lang, texts['English'])
-    bot.send_message(message.chat.id, text, parse_mode="Markdown")
+    markup = telebot.types.InlineKeyboardMarkup()
+    markup.add(telebot.types.InlineKeyboardButton(
+        text={
+            'English': 'Withdraw',
+            'Arabic': 'سحب',
+            'Chinese': '提现'
+        }.get(lang, 'Withdraw'),
+        callback_data='account_withdraw')
+    )
+    bot.send_message(message.chat.id, text, parse_mode="Markdown", reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda call: call.data == 'account_withdraw')
+def handle_account_withdraw_callback(call):
+    # Simulate /withdraw command trigger
+    from withdraw import handle_withdraw
+    class DummyMessage:
+        def __init__(self, call):
+            self.from_user = call.from_user
+            self.chat = call.message.chat
+            self.message_id = call.message.message_id
+            self.text = '/withdraw'
+    handle_withdraw(DummyMessage(call))
+    bot.answer_callback_query(call.id)
