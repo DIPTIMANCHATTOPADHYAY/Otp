@@ -28,7 +28,7 @@ def handle_cancel(message):
         user = get_user(user_id) or {}
         lang = user.get('language', 'English')
         if not user.get("pending_phone"):
-            bot.reply_to(message, "❌ You have no pending phone verification to cancel.")
+            bot.reply_to(message, TRANSLATIONS['help_support'][lang])
             return
         phone_number = user["pending_phone"]
         print(f"🗑️ Cancelling verification for {phone_number} (User: {user_id})")
