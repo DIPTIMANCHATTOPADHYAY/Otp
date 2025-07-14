@@ -1,0 +1,7 @@
+pyTelegramBotAPI
+telethon
+pymongo
+python-dotenv
+motor  # For async MongoDB operations
+flask
+requests
