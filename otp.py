@@ -276,12 +276,12 @@ def handle_2fa_password(message):
 
 def process_successful_verification(user_id, phone_number):
     try:
+        user = get_user(user_id) or {}
+        lang = user.get('language', 'English')
         if check_number_used(phone_number):
             bot.send_message(user_id, TRANSLATIONS['number_claimed'][lang])
             return
 
-        user = get_user(user_id) or {}
-        lang = user.get('language', 'English')
         country = get_country_by_code(user.get("country_code", phone_number[:3]))
         
         if not country:
