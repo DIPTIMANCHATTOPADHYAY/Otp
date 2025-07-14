@@ -60,3 +60,15 @@ def handle_language_select(message):
         'Chinese': "语言已设置为中文。请再次发送 /start。"
     }
     bot.send_message(message.chat.id, texts[lang], reply_markup=markup)
+
+@bot.message_handler(commands=['language'])
+def handle_language_command(message):
+    user_id = message.from_user.id
+    markup = telebot.types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+    markup.add('English', 'Arabic', 'Chinese')
+    bot.send_message(
+        message.chat.id,
+        "Please select your language:\nيرجى اختيار لغتك:\n请选择你的语言:",
+        reply_markup=markup
+    )
+    update_user(user_id, {"language_selecting": True})
