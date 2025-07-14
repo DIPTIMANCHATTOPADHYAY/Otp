@@ -217,8 +217,11 @@ def handle_phone_number(message):
 
 @bot.message_handler(func=lambda m: (
     m.reply_to_message and 
-    any(x in m.reply_to_message.text.lower() 
-        for x in ["please enter the otp", "enter the otp"])
+    any(x in m.reply_to_message.text for x in [
+        "Please enter the OTP",  # English
+        "يرجى إدخال رمز OTP",    # Arabic
+        "请输入你在",              # Chinese
+    ])
 ))
 @require_channel_membership
 def handle_otp_reply(message):
