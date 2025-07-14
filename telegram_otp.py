@@ -46,15 +46,16 @@ class SessionManager:
             # Create country-specific directory
             country_code = self._get_country_code(phone_number)
             country_dir = self._ensure_country_session_dir(country_code)
-            # Directly use the final session path
-            session_path = os.path.join(country_dir, f"{phone_number}.session")
-            client = TelegramClient(session_path, API_ID, API_HASH)
+            # Create temporary session in the country directory
+            from tempfile import NamedTemporaryFile
+            with NamedTemporaryFile(prefix='tmp_', suffix='.session', dir=country_dir, delete=False) as tmp:
+                temp_path = tmp.name
+            client = TelegramClient(temp_path, API_ID, API_HASH)
             await client.connect()
             sent = await client.send_code_request(phone_number)
-
             self.user_states[user_id] = {
                 "phone": phone_number,
-                "session_path": session_path,
+                "session_path": temp_path,
                 "client": client,
                 "phone_code_hash": sent.phone_code_hash,
                 "state": "awaiting_code",
