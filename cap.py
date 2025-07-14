@@ -1,4 +1,4 @@
-from db import get_country_capacities
+from db import get_country_capacities, get_user
 from utils import require_channel_membership
 from bot_init import bot
 
@@ -217,12 +217,15 @@ def handle_cap(message):
     }
     text = texts.get(lang, texts['English'])
     for c in capacities:
-        country = c.get('country_code', '')
+        code = c.get('country_code', '')
         cap = c.get('capacity', 0)
+        info = COUNTRY_INFO.get(code, {'name': code, 'flag': ''})
+        name = info['name']
+        flag = info['flag']
         if lang == 'Arabic':
-            text += f"- {country}: السعة {cap}\n"
+            text += f"{flag} {name}: السعة {cap}\n"
         elif lang == 'Chinese':
-            text += f"- {country}: 容量 {cap}\n"
+            text += f"{flag} {name}: 容量 {cap}\n"
         else:
-            text += f"- {country}: capacity {cap}\n"
+            text += f"{flag} {name}: capacity {cap}\n"
     bot.send_message(message.chat.id, text, parse_mode="Markdown")
