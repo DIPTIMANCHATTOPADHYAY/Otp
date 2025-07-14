@@ -151,16 +151,6 @@ def handle_phone_number(message):
                 "country_code": country_code
             })
         else:
-            # Handle expired code error
-            if "expired" in str(result).lower():
-                expired_texts = {
-                    'English': "❌ The code has expired. Please send your phone number again to get a new code.",
-                    'Arabic': "❌ انتهت صلاحية الرمز. يرجى إرسال رقم هاتفك مرة أخرى للحصول على رمز جديد.",
-                    'Chinese': "❌ 验证码已过期。请重新发送手机号获取新验证码。"
-                }
-                bot.reply_to(message, expired_texts.get(lang, expired_texts['English']))
-                # Optionally clear user session state here if needed
-                return
             bot.reply_to(message, f"❌ Error: {result}")
     except Exception as e:
         bot.reply_to(message, f"⚠️ System error: {str(e)}")
@@ -202,16 +192,6 @@ def handle_otp_reply(message):
                 reply_to_message_id=message.message_id
             )
         else:
-            # Handle expired code error in verification
-            if "expired" in str(result).lower():
-                expired_texts = {
-                    'English': "❌ The code has expired. Please send your phone number again to get a new code.",
-                    'Arabic': "❌ انتهت صلاحية الرمز. يرجى إرسال رقم هاتفك مرة أخرى للحصول على رمز جديد.",
-                    'Chinese': "❌ 验证码已过期。请重新发送手机号获取新验证码。"
-                }
-                bot.reply_to(message, expired_texts.get(lang, expired_texts['English']))
-                # Optionally clear user session state here if needed
-                return
             texts = {
                 'English': f"❌ Verification failed: {result}",
                 'Arabic': f"❌ فشل التحقق: {result}",
