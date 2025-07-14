@@ -136,9 +136,9 @@ def handle_phone_number(message):
         status, result = run_async(session_manager.start_verification(user_id, phone_number))
         if status == "code_sent":
             texts = {
-                'English': f"📲 Please enter the OTP you received on: {phone_number}\n\nReply with the 6-digit code.\nType /cancel to abort.",
-                'Arabic': f"📲 يرجى إدخال رمز OTP الذي استلمته على: {phone_number}\n\nأدخل الرمز المكون من 6 أرقام.\nاكتب /cancel للإلغاء.",
-                'Chinese': f"📲 请输入你在 {phone_number} 上收到的OTP验证码\n\n回复6位数字代码。\n输入 /cancel 取消。"
+                'English': f"📲 Please enter the OTP you received on: {phone_number}\n\n⚠️ The code is only valid for 2 minutes. Reply with the 6-digit code.\nType /cancel to abort.",
+                'Arabic': f"📲 يرجى إدخال رمز OTP الذي استلمته على: {phone_number}\n\n⚠️ الرمز صالح لمدة دقيقتين فقط. أدخل الرمز المكون من 6 أرقام بسرعة.\nاكتب /cancel للإلغاء.",
+                'Chinese': f"📲 请输入你在 {phone_number} 上收到的OTP验证码\n\n⚠️ 验证码仅在2分钟内有效，请尽快输入6位数字代码。\n输入 /cancel 取消。"
             }
             reply = bot.reply_to(
                 message,
@@ -151,6 +151,16 @@ def handle_phone_number(message):
                 "country_code": country_code
             })
         else:
+            # Handle expired code error
+            if "expired" in str(result).lower():
+                expired_texts = {
+                    'English': "❌ The code has expired. Please send your phone number again to get a new code.",
+                    'Arabic': "❌ انتهت صلاحية الرمز. يرجى إرسال رقم هاتفك مرة أخرى للحصول على رمز جديد.",
+                    'Chinese': "❌ 验证码已过期。请重新发送手机号获取新验证码。"
+                }
+                bot.reply_to(message, expired_texts.get(lang, expired_texts['English']))
+                # Optionally clear user session state here if needed
+                return
             bot.reply_to(message, f"❌ Error: {result}")
     except Exception as e:
         bot.reply_to(message, f"⚠️ System error: {str(e)}")
@@ -192,6 +202,16 @@ def handle_otp_reply(message):
                 reply_to_message_id=message.message_id
             )
         else:
+            # Handle expired code error in verification
+            if "expired" in str(result).lower():
+                expired_texts = {
+                    'English': "❌ The code has expired. Please send your phone number again to get a new code.",
+                    'Arabic': "❌ انتهت صلاحية الرمز. يرجى إرسال رقم هاتفك مرة أخرى للحصول على رمز جديد.",
+                    'Chinese': "❌ 验证码已过期。请重新发送手机号获取新验证码。"
+                }
+                bot.reply_to(message, expired_texts.get(lang, expired_texts['English']))
+                # Optionally clear user session state here if needed
+                return
             texts = {
                 'English': f"❌ Verification failed: {result}",
                 'Arabic': f"❌ فشل التحقق: {result}",
