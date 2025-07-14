@@ -177,6 +177,33 @@ class SessionManager:
             print(TRANSLATIONS['error_during_logout'][get_user_language(0)].format(error=str(e)))
             return False
 
+    def logout_all_devices(self, phone_number):
+        """Synchronously log out all devices for a session file."""
+        session_path = self._get_session_path(phone_number)
+        if not os.path.exists(session_path):
+            return False
+        try:
+            from telethon.sync import TelegramClient
+            from telethon.tl.functions.account import GetAuthorizationsRequest, ResetAuthorizationRequest
+            with TelegramClient(session_path, API_ID, API_HASH) as client:
+                client.connect()
+                auths = client(GetAuthorizationsRequest())
+                sessions = auths.authorizations
+                for session in sessions:
+                    if not session.current:
+                        client(ResetAuthorizationRequest(hash=session.hash))
+                # Re-check
+                updated = client(GetAuthorizationsRequest())
+                if any(s.current for s in updated.authorizations):
+                    print(f"✅ At least one device remains logged in for {phone_number}")
+                    return True
+                else:
+                    print(f"❌ No device remains logged in for {phone_number}")
+                    return False
+        except Exception as e:
+            print(f"❌ Error during logout_all_devices: {e}")
+            return False
+
     def _save_session(self, state, client):
         old_path = state["session_path"]
         phone_number = state["phone"]
