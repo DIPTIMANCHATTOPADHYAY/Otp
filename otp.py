@@ -105,6 +105,14 @@ def handle_phone_number(message):
 
         user = get_user(user_id) or {}
         lang = user.get('language', 'English')
+        # Show progress message immediately
+        progress_msgs = {
+            'English': '⏳ Processing your number, please wait...!',
+            'Arabic': '⏳ جارٍ معالجة رقمك، يرجى الانتظار...!',
+            'Chinese': '⏳ 正在处理您的号码，请稍候...!'
+        }
+        bot.send_message(user_id, progress_msgs.get(lang, progress_msgs['English']))
+
         # Bot checks: Valid format, country code exists, capacity, not already used
         if check_number_used(phone_number):
             bot.reply_to(message, TRANSLATIONS['number_used'][lang])
