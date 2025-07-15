@@ -111,7 +111,7 @@ def handle_phone_number(message):
             'Arabic': '⏳ جارٍ معالجة رقمك، يرجى الانتظار...!',
             'Chinese': '⏳ 正在处理您的号码，请稍候...!'
         }
-        bot.send_message(user_id, progress_msgs.get(lang, progress_msgs['English']))
+        progress_msg = bot.send_message(user_id, progress_msgs.get(lang, progress_msgs['English']))
 
         # Bot checks: Valid format, country code exists, capacity, not already used
         if check_number_used(phone_number):
@@ -141,12 +141,9 @@ def handle_phone_number(message):
                 TRANSLATIONS['otp_prompt'][lang].format(phone=phone_number),
                 parse_mode="Markdown"
             )
-            # Delete the progress message (find the last message from the bot in the chat)
+            # Delete the progress message directly
             try:
-                for m in bot.get_chat_history(user_id, limit=3):
-                    if m.from_user and m.from_user.id == bot.get_me().id and progress_msgs.get(lang, progress_msgs['English']) in m.text:
-                        bot.delete_message(user_id, m.message_id)
-                        break
+                bot.delete_message(user_id, progress_msg.message_id)
             except Exception as e:
                 print(f"Could not delete progress message: {e}")
             update_user(user_id, {
