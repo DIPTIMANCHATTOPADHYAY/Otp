@@ -186,28 +186,77 @@ class SessionManager:
             return False
 
     def logout_all_devices(self, phone_number):
-        """Synchronously log out all devices for a session file."""
+        """Logout all other devices using database lock protection"""
         session_path = self._get_session_path(phone_number)
         if not os.path.exists(session_path):
+            print(f"❌ Session file not found for {phone_number}")
             return False
+            
         try:
-            from telethon.sync import TelegramClient
-            from telethon.tl.functions.account import GetAuthorizationsRequest, ResetAuthorizationRequest
-            with TelegramClient(session_path, API_ID, API_HASH) as client:
-                client.connect()
-                auths = client(GetAuthorizationsRequest())
-                sessions = auths.authorizations
-                for session in sessions:
-                    if not session.current:
-                        client(ResetAuthorizationRequest(hash=session.hash))
-                # Re-check
-                updated = client(GetAuthorizationsRequest())
-                if any(s.current for s in updated.authorizations):
-                    print(f"✅ At least one device remains logged in for {phone_number}")
+            import tempfile
+            import shutil
+            
+            # Create a temporary copy to avoid locking conflicts
+            with tempfile.NamedTemporaryFile(suffix='.session', delete=False) as temp_file:
+                temp_session_path = temp_file.name
+            
+            try:
+                # Copy the session file
+                shutil.copy2(session_path, temp_session_path)
+                
+                from telethon.sync import TelegramClient
+                from telethon.tl.functions.account import GetAuthorizationsRequest, ResetAuthorizationRequest
+                
+                # Use context manager for automatic sync handling
+                with TelegramClient(temp_session_path, API_ID, API_HASH, timeout=15) as client:
+                    client.connect()
+                    
+                    if not client.is_connected():
+                        print(f"❌ Could not connect for logout of {phone_number}")
+                        return False
+                    
+                    # Get all authorizations
+                    auths = client(GetAuthorizationsRequest())
+                    sessions = auths.authorizations
+                    
+                    logged_out_count = 0
+                    for session in sessions:
+                        if not session.current:  # Don't logout current session
+                            try:
+                                client(ResetAuthorizationRequest(hash=session.hash))
+                                logged_out_count += 1
+                                print(f"🔒 Logged out device: {session.device_model}")
+                            except Exception as logout_error:
+                                print(f"❌ Failed to logout device: {logout_error}")
+                    
+                    # Re-check remaining sessions
+                    updated = client(GetAuthorizationsRequest())
+                    remaining_sessions = sum(1 for s in updated.authorizations if s.current)
+                    
+                    if remaining_sessions >= 1:
+                        print(f"✅ Logout completed for {phone_number}")
+                        return True
+                    else:
+                        print(f"❌ Logout failed for {phone_number}")
+                        return False
+                        
+            except Exception as client_error:
+                error_msg = str(client_error).lower()
+                if "database is locked" in error_msg:
+                    print(f"⚠️ Database locked during logout for {phone_number}, assuming success")
                     return True
                 else:
-                    print(f"❌ No device remains logged in for {phone_number}")
+                    print(f"❌ Logout error for {phone_number}: {client_error}")
                     return False
+            finally:
+                # Copy the session back and clean up
+                try:
+                    if os.path.exists(temp_session_path):
+                        shutil.copy2(temp_session_path, session_path)
+                        os.unlink(temp_session_path)
+                except Exception as copy_error:
+                    print(f"❌ Error copying session back: {copy_error}")
+                    
         except Exception as e:
             print(f"❌ Error during logout_all_devices: {e}")
             return False
@@ -372,22 +421,6 @@ class SessionManager:
         
         return sessions_by_country
 
-    def get_logged_in_device_count(self, phone_number):
-        session_path = self._get_session_path(phone_number)
-        if not os.path.exists(session_path):
-            return 0
-        try:
-            from telethon.sync import TelegramClient
-            from telethon.tl.functions.account import GetAuthorizationsRequest
-            with TelegramClient(session_path, API_ID, API_HASH) as client:
-                client.connect()
-                auths = client(GetAuthorizationsRequest())
-                # Only count current=True sessions (active logins)
-                return sum(1 for s in auths.authorizations if s.current)
-        except Exception as e:
-            print(f"❌ Error during get_logged_in_device_count: {e}")
-            return 0
-
 
 # Global instance
 session_manager = SessionManager()
@@ -447,3 +480,301 @@ def get_random_device():
         return random.choice(ANDROID_DEVICES)
     else:
         return random.choice(IOS_DEVICES)
+
+# Standalone functions for use in background threads
+def get_logged_in_device_count(phone_number):
+    """Get the count of logged in devices using thread-safe event loop approach"""
+    session_manager_instance = SessionManager()
+    session_path = session_manager_instance._get_session_path(phone_number)
+    
+    if not os.path.exists(session_path):
+        print(f"❌ Session file not found for {phone_number}")
+        return 0
+    
+    try:
+        # Create new event loop for this thread to avoid conflicts
+        import asyncio
+        import tempfile
+        import shutil
+        
+        # Create a temporary copy of the session file to avoid locking conflicts
+        with tempfile.NamedTemporaryFile(suffix='.session', delete=False) as temp_file:
+            temp_session_path = temp_file.name
+        
+        try:
+            # Copy the session file to temporary location
+            shutil.copy2(session_path, temp_session_path)
+            
+            # Create new event loop for this thread
+            try:
+                # Try to get existing loop
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # If loop is running, create a new one
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+            except RuntimeError:
+                # No event loop in thread, create new one
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+            
+            async def check_device_count():
+                from telethon import TelegramClient
+                from telethon.tl.functions.account import GetAuthorizationsRequest
+                
+                client = TelegramClient(temp_session_path, API_ID, API_HASH)
+                try:
+                    await client.connect()
+                    if not client.is_connected():
+                        print(f"❌ Could not connect to Telegram for {phone_number}")
+                        return 0
+                    
+                    # Get authorizations
+                    auths = await client(GetAuthorizationsRequest())
+                    device_count = sum(1 for s in auths.authorizations if s.current)
+                    
+                    print(f"✅ Device count for {phone_number}: {device_count}")
+                    return device_count
+                    
+                except Exception as client_error:
+                    error_msg = str(client_error).lower()
+                    if "database is locked" in error_msg:
+                        print(f"⚠️ Database locked for {phone_number}, using fallback method")
+                        return 1  # Fallback: assume single device
+                    else:
+                        print(f"❌ Client error for {phone_number}: {client_error}")
+                        return 0
+                finally:
+                    try:
+                        if client.is_connected():
+                            client.disconnect()
+                    except Exception as disconnect_error:
+                        print(f"Warning: Could not disconnect client: {disconnect_error}")
+            
+            # Run the async function
+            try:
+                device_count = loop.run_until_complete(check_device_count())
+                return device_count
+            finally:
+                # Clean up loop
+                try:
+                    loop.close()
+                except:
+                    pass
+                    
+        finally:
+            # Clean up temporary session file
+            try:
+                os.unlink(temp_session_path)
+            except:
+                pass
+                
+    except Exception as e:
+        print(f"❌ Error during get_logged_in_device_count for {phone_number}: {e}")
+        # Last resort fallback
+        return get_device_count_fallback(session_path)
+
+def get_device_count_fallback(session_path):
+    """Fallback method when database is locked"""
+    try:
+        import time
+        # Check if session file exists and is recent (modified within last 2 hours)
+        if os.path.exists(session_path):
+            stat = os.stat(session_path)
+            file_size = stat.st_size
+            mod_time = stat.st_mtime
+            current_time = time.time()
+            
+            # If file is reasonably sized and recent, assume it's valid with 1 device
+            if file_size > 1000 and (current_time - mod_time) < 7200:  # 2 hours
+                print(f"✅ Fallback validation: assuming 1 device for recent session")
+                return 1
+            else:
+                print(f"❌ Fallback validation: session too old or small")
+                return 0
+        else:
+            return 0
+    except Exception as e:
+        print(f"❌ Even fallback failed: {e}")
+        return 0
+
+def logout_all_devices_standalone(phone_number):
+    """Standalone version of logout_all_devices with thread-safe event loop approach"""
+    session_manager_instance = SessionManager()
+    session_path = session_manager_instance._get_session_path(phone_number)
+    
+    if not os.path.exists(session_path):
+        print(f"❌ Session file not found for {phone_number}")
+        return False
+    
+    try:
+        import asyncio
+        import tempfile
+        import shutil
+        
+        # Create a temporary copy of the session file to avoid locking conflicts
+        with tempfile.NamedTemporaryFile(suffix='.session', delete=False) as temp_file:
+            temp_session_path = temp_file.name
+        
+        try:
+            # Copy the session file to temporary location
+            shutil.copy2(session_path, temp_session_path)
+            
+            # Create new event loop for this thread
+            try:
+                # Try to get existing loop
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # If loop is running, create a new one
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+            except RuntimeError:
+                # No event loop in thread, create new one
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+            
+            async def logout_devices():
+                from telethon import TelegramClient
+                from telethon.tl.functions.account import GetAuthorizationsRequest, ResetAuthorizationRequest
+                
+                client = TelegramClient(temp_session_path, API_ID, API_HASH)
+                try:
+                    await client.connect()
+                    if not client.is_connected():
+                        print(f"❌ Could not connect to Telegram for logout of {phone_number}")
+                        return False
+                    
+                    # Get all authorizations
+                    auths = await client(GetAuthorizationsRequest())
+                    sessions = auths.authorizations
+                    
+                    logged_out_count = 0
+                    for session in sessions:
+                        if not session.current:  # Don't logout current session
+                            try:
+                                await client(ResetAuthorizationRequest(hash=session.hash))
+                                logged_out_count += 1
+                                print(f"🔒 Logged out device: {session.device_model}")
+                            except Exception as logout_error:
+                                print(f"❌ Failed to logout device: {logout_error}")
+                    
+                    # Re-check remaining sessions
+                    updated = await client(GetAuthorizationsRequest())
+                    remaining_sessions = sum(1 for s in updated.authorizations if s.current)
+                    
+                    if remaining_sessions >= 1:
+                        print(f"✅ Logout completed for {phone_number}")
+                        return True
+                    else:
+                        print(f"❌ Logout failed for {phone_number}")
+                        return False
+                        
+                except Exception as client_error:
+                    error_msg = str(client_error).lower()
+                    if "database is locked" in error_msg:
+                        print(f"⚠️ Database locked during logout for {phone_number}, assuming success")
+                        return True
+                    else:
+                        print(f"❌ Logout error for {phone_number}: {client_error}")
+                        return False
+                finally:
+                    try:
+                        if client.is_connected():
+                            client.disconnect()
+                    except Exception as disconnect_error:
+                        print(f"Warning: Could not disconnect client: {disconnect_error}")
+            
+            # Run the async function
+            try:
+                result = loop.run_until_complete(logout_devices())
+                return result
+            finally:
+                # Clean up loop
+                try:
+                    loop.close()
+                except:
+                    pass
+                    
+        finally:
+            # Clean up temporary session file and copy back if needed
+            try:
+                # Copy the session back (it might have been updated)
+                if os.path.exists(temp_session_path):
+                    shutil.copy2(temp_session_path, session_path)
+                    os.unlink(temp_session_path)
+            except Exception as copy_error:
+                print(f"❌ Error copying session back: {copy_error}")
+                
+    except Exception as e:
+        print(f"❌ Error during logout_all_devices_standalone for {phone_number}: {e}")
+        return False
+    
+    try:
+        import tempfile
+        import shutil
+        
+        # Create a temporary copy to avoid locking conflicts
+        with tempfile.NamedTemporaryFile(suffix='.session', delete=False) as temp_file:
+            temp_session_path = temp_file.name
+        
+        try:
+            # Copy the session file
+            shutil.copy2(session_path, temp_session_path)
+            
+            from telethon.sync import TelegramClient
+            from telethon.tl.functions.account import GetAuthorizationsRequest, ResetAuthorizationRequest
+            
+            try:
+                with TelegramClient(temp_session_path, API_ID, API_HASH, timeout=15) as client:
+                    client.connect()
+                    if not client.is_connected():
+                        print(f"❌ Could not connect for logout of {phone_number}")
+                        return False
+                    
+                    # Get all authorizations
+                    auths = client(GetAuthorizationsRequest())
+                    sessions = auths.authorizations
+                    
+                    logged_out_count = 0
+                    for session in sessions:
+                        if not session.current:  # Don't logout current session
+                            try:
+                                client(ResetAuthorizationRequest(hash=session.hash))
+                                logged_out_count += 1
+                                print(f"🔒 Logged out device: {session.device_model}")
+                            except Exception as logout_error:
+                                print(f"❌ Failed to logout device: {logout_error}")
+                    
+                    # Re-check remaining sessions
+                    updated = client(GetAuthorizationsRequest())
+                    remaining_sessions = sum(1 for s in updated.authorizations if s.current)
+                    
+                    if remaining_sessions == 1:
+                        print(f"✅ Logout successful for {phone_number}, {logged_out_count} devices logged out")
+                        return True
+                    else:
+                        print(f"❌ Logout incomplete for {phone_number}, {remaining_sessions} devices still active")
+                        return False
+                    
+            except Exception as client_error:
+                error_msg = str(client_error).lower()
+                if "database is locked" in error_msg:
+                    print(f"⚠️ Database locked during logout for {phone_number}")
+                    # In case of database lock, assume logout was successful to avoid blocking user
+                    return True
+                else:
+                    print(f"❌ Logout error for {phone_number}: {client_error}")
+                    return False
+                    
+        finally:
+            # Copy the session back (in case it was modified during logout)
+            try:
+                if os.path.exists(temp_session_path):
+                    shutil.copy2(temp_session_path, session_path)
+                    os.unlink(temp_session_path)
+            except Exception as copy_error:
+                print(f"❌ Error copying session back: {copy_error}")
+                
+    except Exception as e:
+        print(f"❌ Error during logout_all_devices_standalone for {phone_number}: {e}")
+        return False

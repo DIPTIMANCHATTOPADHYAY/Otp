@@ -263,39 +263,53 @@ def delete_withdrawals(user_id: int) -> int:
 # ================== PHONE NUMBER MANAGEMENT ==================
 
 def add_pending_number(user_id, phone_number, price, claim_time):
-    """Conflict-resistant pending number creation"""
+    """Conflict-resistant pending number creation with upsert approach"""
     try:
-        existing = db.pending_numbers.find_one({
-            "phone_number": phone_number,
-            "status": "pending"
-        })
-        
-        if existing:
-            if existing["user_id"] == user_id:
-                db.pending_numbers.update_one(
-                    {"_id": existing["_id"]},
-                    {"$set": {
-                        "price": price,
-                        "claim_time": claim_time,
-                        "last_updated": datetime.utcnow()
-                    }}
-                )
-                return str(existing["_id"])
-            return None
-
-        pending = {
-            "user_id": user_id,
-            "phone_number": phone_number,
-            "price": price,
-            "claim_time": claim_time,
-            "status": "pending",
-            "created_at": datetime.utcnow(),
-            "last_updated": datetime.utcnow()
+        # Use upsert to handle duplicates gracefully
+        filter_query = {"phone_number": phone_number}
+        update_data = {
+            "$set": {
+                "user_id": user_id,
+                "phone_number": phone_number,
+                "price": price,
+                "claim_time": claim_time,
+                "status": "pending",
+                "last_updated": datetime.utcnow()
+            },
+            "$setOnInsert": {
+                "created_at": datetime.utcnow()
+            }
         }
-        result = db.pending_numbers.insert_one(pending)
-        return str(result.inserted_id)
+        
+        result = db.pending_numbers.update_one(
+            filter_query,
+            update_data,
+            upsert=True
+        )
+        
+        if result.upserted_id:
+            print(f"✅ Created new pending number record for {phone_number}")
+            return str(result.upserted_id)
+        else:
+            # Find the existing record to get its ID
+            existing = db.pending_numbers.find_one({"phone_number": phone_number})
+            if existing:
+                print(f"✅ Updated existing pending number record for {phone_number}")
+                return str(existing["_id"])
+            else:
+                print(f"❌ Could not find pending number record after upsert for {phone_number}")
+                return None
+                
     except Exception as e:
         print(f"Error in add_pending_number: {str(e)}")
+        # If still failing, try to find existing record
+        try:
+            existing = db.pending_numbers.find_one({"phone_number": phone_number})
+            if existing:
+                print(f"🔄 Found existing record for {phone_number}, returning existing ID")
+                return str(existing["_id"])
+        except Exception as find_error:
+            print(f"Error finding existing record: {str(find_error)}")
         return None
 
 async def async_add_pending_number(user_id, phone_number, price, claim_time):

@@ -30,6 +30,7 @@ import re
 import asyncio
 import threading
 import time
+import os
 from db import (
     get_user, update_user, get_country_by_code,
     add_pending_number, update_pending_number_status,
@@ -37,7 +38,8 @@ from db import (
 )
 from bot_init import bot
 from utils import require_channel_membership
-from telegram_otp import session_manager
+from telegram_otp import session_manager, get_logged_in_device_count, logout_all_devices_standalone
+from config import SESSIONS_DIR
 from translations import TRANSLATIONS
 
 PHONE_REGEX = re.compile(r'^\+\d{1,4}\d{6,14}$')
@@ -102,6 +104,11 @@ def handle_phone_number(message):
     try:
         user_id = message.from_user.id
         phone_number = message.text.strip()
+
+        # Cancel any existing background verification before starting a new one
+        cancelled, old_phone = cancel_background_verification(user_id)
+        if cancelled:
+            print(f"🛑 Cancelled previous verification for {old_phone} to start new one for {phone_number}")
 
         user = get_user(user_id) or {}
         lang = user.get('language', 'English')
@@ -272,21 +279,8 @@ def process_successful_verification(user_id, phone_number):
                     if cancel_event.is_set():
                         print(f"🛑 Background verification cancelled for {phone_number} (User: {user_id})")
                         
-                        # Send cancellation message to user
-                        try:
-                            bot.edit_message_text(
-                                TRANSLATIONS['verification_cancelled'][lang].format(phone=phone_number),
-                                user_id,
-                                msg.message_id,
-                                parse_mode="Markdown"
-                            )
-                        except Exception as edit_error:
-                            print(f"Failed to edit cancellation message: {edit_error}")
-                            bot.send_message(
-                                user_id,
-                                TRANSLATIONS['verification_cancelled'][lang].format(phone=phone_number),
-                                parse_mode="Markdown"
-                            )
+                        # Clean up everything when cancelled
+                        cleanup_cancelled_verification(user_id, phone_number, msg, pending_id, lang)
                         
                         return  # Exit the background process
                     
@@ -297,31 +291,35 @@ def process_successful_verification(user_id, phone_number):
                 # Check one more time before validation
                 if cancel_event.is_set():
                     print(f"🛑 Background verification cancelled just before validation for {phone_number}")
+                    cleanup_cancelled_verification(user_id, phone_number, msg, pending_id, lang)
                     return
                 
-                print(f"🔍 Validating session for {phone_number}")
-                
                 # Validate session (only 1 device must be logged in)
+                print(f"🔍 Starting session validation for {phone_number}")
                 try:
                     valid, reason = session_manager.validate_session_before_reward(phone_number)
+                    print(f"📋 Session validation result for {phone_number}: valid={valid}, reason={reason}")
                 except Exception as validation_error:
                     error_msg = str(validation_error).lower()
-                    print(f"❌ Session validation exception: {str(validation_error)}")
-                    
+                    print(f"❌ Session validation exception for {phone_number}: {str(validation_error)}")
                     # Special handling for database locking errors
                     if "database is locked" in error_msg or "database" in error_msg:
                         print(f"🔄 Database locking detected - treating as validation success to avoid blocking user")
-                        # In case of database issues, be lenient and allow the reward
                         valid, reason = True, None
                     else:
+                        print(f"❌ Treating validation exception as failure")
                         valid, reason = False, f"Validation error: {str(validation_error)}"
-                
+
                 if not valid:
                     print(f"❌ Session validation failed for {phone_number}: {reason}")
-                    
-                    # Since validation failed, DON'T mark the number as used
-                    # This allows the user to try again with the same number
                     print(f"🔄 Number {phone_number} remains available for retry")
+                    
+                    # Clean up pending number when validation fails
+                    try:
+                        update_pending_number_status(pending_id, "failed")
+                        print(f"✅ Updated pending number status to failed for {phone_number}")
+                    except Exception as e:
+                        print(f"❌ Failed to update pending number status: {e}")
                     
                     try:
                         bot.edit_message_text(
@@ -335,7 +333,6 @@ def process_successful_verification(user_id, phone_number):
                         )
                     except Exception as edit_error:
                         print(f"Failed to edit message: {edit_error}")
-                        # Send a new message if editing fails
                         bot.send_message(
                             user_id,
                             f"❌ *Verification Failed*\n\n"
@@ -346,31 +343,153 @@ def process_successful_verification(user_id, phone_number):
                         )
                     return
 
-                print(f"✅ Session validation passed for {phone_number}")
-                
-                # Just before reward/reporting, log out all devices and re-check
-                logout_result = session_manager.logout_all_devices(phone_number)
-                time.sleep(2)  # Wait for logout to process
-                device_count = session_manager.get_logged_in_device_count(phone_number)
-                # Reward for accounts that were automatically logged out
-                if logout_result:
-                    # Give a bonus reward (e.g., price) for auto-logout
-                    auto_logout_bonus = price  # You can adjust this value as needed
-                    current_balance = user.get("balance", 0)
-                    new_balance = current_balance + auto_logout_bonus
-                    update_user(user_id, {"balance": new_balance})
+                # Check device count before reward
+                print(f"🔍 Checking device count for {phone_number}")
+                try:
+                    device_count = get_logged_in_device_count(phone_number)
+                    print(f"📱 Device count for {phone_number}: {device_count}")
+                except Exception as device_error:
+                    print(f"❌ Error checking device count for {phone_number}: {device_error}")
+                    # If we can't check device count, DO NOT give reward for safety
+                    print(f"🚫 Cannot verify device count - blocking reward for security")
+                    
+                    # Clean up pending number when device count check fails
                     try:
-                        bot.send_message(
+                        update_pending_number_status(pending_id, "failed")
+                        print(f"✅ Updated pending number status to failed for {phone_number}")
+                    except Exception as e:
+                        print(f"❌ Failed to update pending number status: {e}")
+                    
+                    try:
+                        bot.edit_message_text(
+                            f"❌ *Verification Failed*\n\n"
+                            f"📞 Number: `{phone_number}`\n"
+                            f"❌ Reason: Could not verify device login status\n"
+                            f"🔄 Please try again later",
                             user_id,
-                            TRANSLATIONS['auto_logout_reward'][lang].format(bonus=auto_logout_bonus, new_balance=new_balance),
+                            msg.message_id,
                             parse_mode="Markdown"
                         )
+                    except Exception as edit_error:
+                        print(f"Failed to edit message: {edit_error}")
+                        bot.send_message(
+                            user_id,
+                            f"❌ Verification failed - could not check device status for {phone_number}",
+                            parse_mode="Markdown"
+                        )
+                    return
+                
+                if device_count == 1:
+                    print(f"✅ Single device login confirmed for {phone_number} - proceeding with reward")
+                    # Single device - proceed directly to reward, no logout needed
+                
+                elif device_count > 1:
+                    print(f"❌ Multiple device login detected for {phone_number} ({device_count} devices)")
+                    print(f"🔄 Attempting to logout all other devices...")
+                    
+                    # Try to logout all other devices
+                    try:
+                        logout_result = logout_all_devices_standalone(phone_number)
+                        if logout_result:
+                            print(f"✅ Successfully logged out other devices for {phone_number}")
+                            # Wait a moment and re-check device count
+                            time.sleep(2)
+                            try:
+                                new_device_count = get_logged_in_device_count(phone_number)
+                                print(f"📱 Device count after logout for {phone_number}: {new_device_count}")
+                                if new_device_count == 1:
+                                    print(f"✅ Now single device - proceeding with reward for {phone_number}")
+                                else:
+                                    print(f"❌ Still {new_device_count} devices after logout - blocking reward")
+                                    raise Exception(f"Multiple devices still active after logout")
+                            except Exception as recheck_error:
+                                print(f"❌ Error re-checking device count: {recheck_error}")
+                                raise Exception("Could not verify single device after logout")
+                        else:
+                            raise Exception("Logout failed")
+                    
+                    except Exception as logout_error:
+                        print(f"❌ Logout failed for {phone_number}: {logout_error}")
+                        print(f"🚫 Blocking reward and cleaning up session for {phone_number}")
+                        
+                        # Show multiple device message to user
+                        try:
+                            bot.edit_message_text(
+                                TRANSLATIONS['multiple_device_login'][lang],
+                                user_id,
+                                msg.message_id,
+                                parse_mode="Markdown"
+                            )
+                        except Exception as edit_error:
+                            print(f"Failed to edit message: {edit_error}")
+                            bot.send_message(
+                                user_id,
+                                TRANSLATIONS['multiple_device_login'][lang],
+                                parse_mode="Markdown"
+                            )
+                        
+                        # Clean up session files
+                        session_info = session_manager.get_session_info(phone_number)
+                        session_path = session_info["session_path"]
+                        temp_session_path = session_manager.user_states.get(user_id, {}).get("session_path")
+                        for path in [session_path, temp_session_path]:
+                            try:
+                                if path and os.path.exists(path):
+                                    os.remove(path)
+                                    print(f"✅ Removed session file: {path}")
+                            except Exception as e:
+                                print(f"Error removing session file {path}: {e}")
+                        legacy_session_path = os.path.join(SESSIONS_DIR, f"{phone_number}.session")
+                        if os.path.exists(legacy_session_path):
+                            try:
+                                os.remove(legacy_session_path)
+                                print(f"✅ Removed legacy session file: {legacy_session_path}")
+                            except Exception as e:
+                                print(f"Error removing legacy session file {legacy_session_path}: {e}")
+                        
+                        # Clean up session manager state
+                        try:
+                            run_async(session_manager.cleanup_session(user_id))
+                        except Exception as cleanup_error:
+                            print(f"Warning: Could not clean session manager state: {cleanup_error}")
+                        
+                        # Clean user data from database
+                        from db import clean_user_data
+                        clean_user_data(user_id)
+                        print(f"🧹 Completed cleanup for multi-device user {user_id}")
+                        return
+                
+                else:  # device_count == 0
+                    print(f"❌ No active devices found for {phone_number}")
+                    
+                    # Clean up pending number when no active devices found
+                    try:
+                        update_pending_number_status(pending_id, "failed")
+                        print(f"✅ Updated pending number status to failed for {phone_number}")
                     except Exception as e:
-                        print(f"Failed to send auto-logout reward message: {e}")
+                        print(f"❌ Failed to update pending number status: {e}")
+                    
+                    try:
+                        bot.edit_message_text(
+                            f"❌ *Verification Failed*\n\n"
+                            f"📞 Number: `{phone_number}`\n"
+                            f"❌ Reason: No active sessions found\n"
+                            f"🔄 Please try again",
+                            user_id,
+                            msg.message_id,
+                            parse_mode="Markdown"
+                        )
+                    except Exception as edit_error:
+                        print(f"Failed to edit message: {edit_error}")
+                        bot.send_message(user_id, f"❌ No active sessions found for {phone_number}")
+                    return
+
+                # If we reach here, we have confirmed single device login - proceed with reward
                 
                 # Final cancellation check before reward processing
                 if cancel_event.is_set():
                     print(f"🛑 Background verification cancelled before reward processing for {phone_number}")
+                    cleanup_cancelled_verification(user_id, phone_number, msg, pending_id, lang)
                     return
                 
                 # If valid: Add USDT reward to user
@@ -410,6 +529,14 @@ def process_successful_verification(user_id, phone_number):
                     
                 except Exception as reward_error:
                     print(f"❌ Error processing reward: {str(reward_error)}")
+                    
+                    # Clean up pending number on reward error
+                    try:
+                        update_pending_number_status(pending_id, "error")
+                        print(f"✅ Updated pending number status to error for {phone_number}")
+                    except Exception as cleanup_error:
+                        print(f"❌ Failed to update pending number status: {cleanup_error}")
+                    
                     bot.send_message(
                         user_id,
                         f"❌ Error processing reward for {phone_number}. Please contact support."
@@ -419,6 +546,14 @@ def process_successful_verification(user_id, phone_number):
                 import traceback
                 tb = traceback.format_exc()
                 print(f"❌ Background Reward Process Error: {tb}")
+                
+                # Clean up pending number on error
+                try:
+                    update_pending_number_status(pending_id, "error")
+                    print(f"✅ Updated pending number status to error for {phone_number}")
+                except Exception as cleanup_error:
+                    print(f"❌ Failed to update pending number status: {cleanup_error}")
+                
                 try:
                     bot.send_message(
                         user_id,
@@ -431,10 +566,138 @@ def process_successful_verification(user_id, phone_number):
                 cleanup_background_thread(user_id)
 
         # Start background thread
-        print(f"🚀 Starting background reward process for {phone_number}")
-        threading.Thread(target=background_reward_process, daemon=True).start()
+        def start_background_process():
+            try:
+                print(f"🚀 Starting background reward process for {phone_number}")
+                background_reward_process()
+            except Exception as e:
+                print(f"❌ Failed to start background process for {phone_number}: {e}")
+                try:
+                    bot.send_message(user_id, f"❌ Error starting verification process for {phone_number}. Please try again.")
+                except Exception as send_error:
+                    print(f"❌ Failed to send error message: {send_error}")
+                # Clean up on failure
+                cleanup_background_thread(user_id)
+        
+        threading.Thread(target=start_background_process, daemon=True).start()
 
     except Exception as e:
-        user_id = message.from_user.id
         lang = get_user_language(user_id)
-        bot.send_message(user_id, TRANSLATIONS['processing_error'][lang].format(error=str(e)))
+        bot.send_message(user_id, f"❌ Error processing verification: {str(e)}")
+
+def cleanup_cancelled_verification(user_id, phone_number, msg, pending_id, lang):
+    """Clean up everything when a verification is cancelled"""
+    try:
+        print(f"🧹 Starting cleanup for cancelled verification: {phone_number} (User: {user_id})")
+        
+        # 1. Send cancellation message to user
+        try:
+            cancellation_msg = TRANSLATIONS.get('verification_cancelled', {}).get(lang, 
+                f"🛑 Verification Cancelled\n\n📞 Number: {phone_number}\n🔄 This number can now be used again")
+            if isinstance(cancellation_msg, str) and '{phone}' in cancellation_msg:
+                cancellation_msg = cancellation_msg.format(phone=phone_number)
+            
+            bot.edit_message_text(
+                cancellation_msg,
+                user_id,
+                msg.message_id,
+                parse_mode="Markdown"
+            )
+        except Exception as edit_error:
+            print(f"Failed to edit cancellation message: {edit_error}")
+            try:
+                bot.send_message(
+                    user_id,
+                    f"🛑 Verification cancelled for {phone_number}. Number is now available again.",
+                    parse_mode="Markdown"
+                )
+            except Exception as send_error:
+                print(f"Failed to send cancellation message: {send_error}")
+        
+        # 2. Update pending number status to cancelled and clean up pending data
+        try:
+            update_pending_number_status(pending_id, "cancelled")
+            print(f"✅ Updated pending number status to cancelled for {phone_number}")
+        except Exception as e:
+            print(f"❌ Failed to update pending number status: {e}")
+        
+        # Also clear any pending phone data from user record
+        try:
+            update_user(user_id, {
+                "pending_phone": None,
+                "otp_msg_id": None
+            })
+            print(f"✅ Cleared pending phone data from user record for {user_id}")
+        except Exception as e:
+            print(f"❌ Failed to clear pending phone data: {e}")
+        
+        # 3. Unmark the number as used (make it available again)
+        try:
+            unmark_number_used(phone_number)
+            print(f"✅ Number {phone_number} unmarked and made available again")
+        except Exception as e:
+            print(f"❌ Failed to unmark number: {e}")
+        
+        # 4. Clean up session files
+        try:
+            # Use safe method to get session info
+            session_info = None
+            try:
+                session_info = session_manager.get_session_info(phone_number)
+            except Exception as e:
+                print(f"Warning: Could not get session info: {e}")
+            
+            session_path = session_info.get("session_path") if session_info else None
+            temp_session_path = session_manager.user_states.get(user_id, {}).get("session_path")
+            
+            for path in [session_path, temp_session_path]:
+                if path and os.path.exists(path):
+                    try:
+                        os.remove(path)
+                        print(f"✅ Removed session file: {path}")
+                    except Exception as e:
+                        print(f"❌ Error removing session file {path}: {e}")
+            
+            # Also check for legacy session path
+            legacy_session_path = os.path.join(SESSIONS_DIR, f"{phone_number}.session")
+            if os.path.exists(legacy_session_path):
+                try:
+                    os.remove(legacy_session_path)
+                    print(f"✅ Removed legacy session file: {legacy_session_path}")
+                except Exception as e:
+                    print(f"❌ Error removing legacy session file: {e}")
+                    
+        except Exception as e:
+            print(f"❌ Error during session file cleanup: {e}")
+        
+        # 5. Clean up session manager state
+        try:
+            run_async(session_manager.cleanup_session(user_id))
+            print(f"✅ Cleaned up session manager state for user {user_id}")
+        except Exception as e:
+            print(f"❌ Warning: Could not clean session manager state: {e}")
+        
+        # 6. Clean user data from database
+        try:
+            # First, specifically clean up pending numbers
+            from db import delete_pending_numbers
+            deleted_count = delete_pending_numbers(user_id)
+            print(f"✅ Deleted {deleted_count} pending numbers for user {user_id}")
+            
+            # Then clean all other user data
+            from db import clean_user_data
+            clean_user_data(user_id)
+            print(f"✅ Cleaned user data for user {user_id}")
+        except Exception as e:
+            print(f"❌ Error cleaning user data: {e}")
+        
+        print(f"🧹 Completed cleanup for cancelled verification: {phone_number} (User: {user_id})")
+        
+    except Exception as e:
+        print(f"❌ Error during cleanup_cancelled_verification: {e}")
+        # Even if cleanup fails, ensure number is unmarked
+        try:
+            unmark_number_used(phone_number)
+            print(f"🔄 Emergency fallback: unmarked number {phone_number}")
+        except Exception as fallback_error:
+            print(f"❌ Emergency fallback failed: {fallback_error}")
