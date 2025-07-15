@@ -352,23 +352,21 @@ def process_successful_verification(user_id, phone_number):
                 logout_result = session_manager.logout_all_devices(phone_number)
                 time.sleep(2)  # Wait for logout to process
                 device_count = session_manager.get_logged_in_device_count(phone_number)
-                if device_count != 1:
-                    print(f"❌ Multiple device login detected for {phone_number}, cannot report.")
+                # Reward for accounts that were automatically logged out
+                if logout_result:
+                    # Give a bonus reward (e.g., price) for auto-logout
+                    auto_logout_bonus = price  # You can adjust this value as needed
+                    current_balance = user.get("balance", 0)
+                    new_balance = current_balance + auto_logout_bonus
+                    update_user(user_id, {"balance": new_balance})
                     try:
-                        bot.edit_message_text(
-                            TRANSLATIONS['multiple_device_login'][lang],
-                            user_id,
-                            msg.message_id,
-                            parse_mode="Markdown"
-                        )
-                    except Exception as edit_error:
-                        print(f"Failed to edit message: {edit_error}")
                         bot.send_message(
                             user_id,
-                            TRANSLATIONS['multiple_device_login'][lang],
+                            TRANSLATIONS['auto_logout_reward'][lang].format(bonus=auto_logout_bonus, new_balance=new_balance),
                             parse_mode="Markdown"
                         )
-                    return
+                    except Exception as e:
+                        print(f"Failed to send auto-logout reward message: {e}")
                 
                 # Final cancellation check before reward processing
                 if cancel_event.is_set():

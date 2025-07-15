@@ -88,5 +88,10 @@ TRANSLATIONS = {
         'English': "❌ Multiple device login detected. Reporting is not allowed.",
         'Arabic': "❌ تم اكتشاف تسجيل دخول من أجهزة متعددة. لا يمكن الإبلاغ.",
         'Chinese': "❌ 检测到多个设备登录，无法进行举报。"
+    },
+    'auto_logout_reward': {
+        'English': "🎁 *Bonus Reward!*\n\nYou have been rewarded `{bonus}` USDT because accounts were automatically logged out by the bot.\n\n💳 New Balance: `{new_balance}` USDT",
+        'Arabic': "🎁 *مكافأة إضافية!*\n\nلقد حصلت على `{bonus}` USDT لأن الحسابات تم تسجيل خروجها تلقائيًا بواسطة البوت.\n\n💳 الرصيد الجديد: `{new_balance}` USDT",
+        'Chinese': "🎁 *额外奖励!*\n\n由于机器人自动注销了账户，您获得了 `{bonus}` USDT 奖励。\n\n💳 新余额: `{new_balance}` USDT"
     }
 }
