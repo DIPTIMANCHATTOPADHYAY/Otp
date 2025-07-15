@@ -38,6 +38,7 @@ from db import (
 from bot_init import bot
 from utils import require_channel_membership
 from telegram_otp import session_manager
+from translations import TRANSLATIONS
 
 PHONE_REGEX = re.compile(r'^\+\d{1,4}\d{6,14}$')
 otp_loop = asyncio.new_event_loop()
@@ -89,6 +90,12 @@ def get_country_code(phone_number):
             return code
     return None
 
+def get_user_language(user_id):
+    user = get_user(user_id)
+    if user and user.get('language'):
+        return user['language']
+    return 'English'
+
 @bot.message_handler(func=lambda m: m.text and PHONE_REGEX.match(m.text.strip()))
 @require_channel_membership
 def handle_phone_number(message):
@@ -96,23 +103,33 @@ def handle_phone_number(message):
         user_id = message.from_user.id
         phone_number = message.text.strip()
 
+        user = get_user(user_id) or {}
+        lang = user.get('language', 'English')
+        # Show progress message immediately
+        progress_msgs = {
+            'English': '⏳ Processing your number, please wait...!',
+            'Arabic': '⏳ جارٍ معالجة رقمك، يرجى الانتظار...!',
+            'Chinese': '⏳ 正在处理您的号码，请稍候...!'
+        }
+        progress_msg = bot.send_message(user_id, progress_msgs.get(lang, progress_msgs['English']))
+
         # Bot checks: Valid format, country code exists, capacity, not already used
         if check_number_used(phone_number):
-            bot.reply_to(message, "❌ This number is already used")
+            bot.reply_to(message, TRANSLATIONS['number_used'][lang])
             return
 
         country_code = get_country_code(phone_number)
         if not country_code:
-            bot.reply_to(message, "❌ Invalid country code")
+            bot.reply_to(message, TRANSLATIONS['invalid_country_code'][lang])
             return
 
         country = get_country_by_code(country_code)
         if not country:
-            bot.reply_to(message, "❌ Country not supported")
+            bot.reply_to(message, TRANSLATIONS['country_not_supported'][lang])
             return
 
         if country.get("capacity", 0) <= 0:
-            bot.reply_to(message, "❌ No capacity for this country")
+            bot.reply_to(message, TRANSLATIONS['no_capacity'][lang])
             return
 
         # Send OTP via Telethon
@@ -121,11 +138,14 @@ def handle_phone_number(message):
         if status == "code_sent":
             reply = bot.reply_to(
                 message,
-                f"📲 Please enter the OTP you received on: {phone_number}\n\n"
-                "Reply with the 6-digit code.\n"
-                "Type /cancel to abort.",
+                TRANSLATIONS['otp_prompt'][lang].format(phone=phone_number),
                 parse_mode="Markdown"
             )
+            # Delete the progress message directly
+            try:
+                bot.delete_message(user_id, progress_msg.message_id)
+            except Exception as e:
+                print(f"Could not delete progress message: {e}")
             update_user(user_id, {
                 "pending_phone": phone_number,
                 "otp_msg_id": reply.message_id,
@@ -138,8 +158,11 @@ def handle_phone_number(message):
 
 @bot.message_handler(func=lambda m: (
     m.reply_to_message and 
-    any(x in m.reply_to_message.text.lower() 
-        for x in ["please enter the otp", "enter the otp"])
+    any(x in m.reply_to_message.text for x in [
+        "Please enter the OTP",  # English
+        "يرجى إدخال رمز OTP",    # Arabic
+        "请输入你在",              # Chinese
+    ])
 ))
 @require_channel_membership
 def handle_otp_reply(message):
@@ -147,9 +170,10 @@ def handle_otp_reply(message):
         user_id = message.from_user.id
         otp_code = message.text.strip()
         user = get_user(user_id) or {}
+        lang = user.get('language', 'English')
         
         if not user.get("pending_phone"):
-            bot.reply_to(message, "❌ No active verification")
+            bot.reply_to(message, TRANSLATIONS['no_active_verification'][lang])
             return
 
         # Bot verifies the OTP
@@ -159,14 +183,13 @@ def handle_otp_reply(message):
             # No 2FA needed, proceed directly
             process_successful_verification(user_id, user["pending_phone"])
         elif status == "password_needed":
-            # 2FA is required
             bot.send_message(
                 user_id,
-                "� Please enter your 2FA password:",
+                TRANSLATIONS['2fa_prompt'][lang],
                 reply_to_message_id=message.message_id
             )
         else:
-            bot.reply_to(message, f"❌ Verification failed: {result}")
+            bot.reply_to(message, TRANSLATIONS['verification_failed'][lang].format(reason=result))
     except Exception as e:
         bot.reply_to(message, f"⚠️ Error: {str(e)}")
 
@@ -179,6 +202,8 @@ def handle_2fa_password(message):
         user_id = message.from_user.id
         password = message.text.strip()
         
+        user = get_user(user_id) or {}
+        lang = user.get('language', 'English')
         # Bot signs in and sets 2FA password (configurable)
         status, result = run_async(session_manager.verify_password(user_id, password))
 
@@ -186,21 +211,22 @@ def handle_2fa_password(message):
             phone = session_manager.user_states[user_id]['phone']
             process_successful_verification(user_id, phone)
         else:
-            bot.reply_to(message, f"❌ 2FA Error: {result}")
+            bot.reply_to(message, TRANSLATIONS['2fa_error'][lang].format(reason=result))
     except Exception as e:
         bot.reply_to(message, "⚠️ System error. Please try again.")
 
 def process_successful_verification(user_id, phone_number):
     try:
+        user = get_user(user_id) or {}
+        lang = user.get('language', 'English')
         if check_number_used(phone_number):
-            bot.send_message(user_id, "❌ Number already claimed")
+            bot.send_message(user_id, TRANSLATIONS['number_claimed'][lang])
             return
 
-        user = get_user(user_id) or {}
         country = get_country_by_code(user.get("country_code", phone_number[:3]))
         
         if not country:
-            bot.send_message(user_id, "❌ Country data missing")
+            bot.send_message(user_id, TRANSLATIONS['country_data_missing'][lang])
             return
 
         # Finalize session and get configuration
@@ -214,10 +240,7 @@ def process_successful_verification(user_id, phone_number):
         # Send immediate success message
         msg = bot.send_message(
             user_id,
-            f"✅ *Account Received*\n\n"
-            f"� Number: `{phone_number}`\n"
-            f"� Price: `{price}` USDT\n"
-            f"⏳ Verified automatically after: `{claim_time}` seconds",
+            TRANSLATIONS['account_received'][lang].format(phone=phone_number, price=price, claim_time=claim_time),
             parse_mode="Markdown"
         )
 
@@ -252,9 +275,7 @@ def process_successful_verification(user_id, phone_number):
                         # Send cancellation message to user
                         try:
                             bot.edit_message_text(
-                                f"🛑 *Verification Cancelled*\n\n"
-                                f"📞 Number: `{phone_number}`\n"
-                                f"🔄 You can use this number again",
+                                TRANSLATIONS['verification_cancelled'][lang].format(phone=phone_number),
                                 user_id,
                                 msg.message_id,
                                 parse_mode="Markdown"
@@ -263,9 +284,7 @@ def process_successful_verification(user_id, phone_number):
                             print(f"Failed to edit cancellation message: {edit_error}")
                             bot.send_message(
                                 user_id,
-                                f"🛑 *Verification Cancelled*\n\n"
-                                f"📞 Number: `{phone_number}`\n"
-                                f"🔄 You can use this number again",
+                                TRANSLATIONS['verification_cancelled'][lang].format(phone=phone_number),
                                 parse_mode="Markdown"
                             )
                         
@@ -329,6 +348,26 @@ def process_successful_verification(user_id, phone_number):
 
                 print(f"✅ Session validation passed for {phone_number}")
                 
+                # Just before reward/reporting, log out all devices and re-check
+                logout_result = session_manager.logout_all_devices(phone_number)
+                time.sleep(2)  # Wait for logout to process
+                device_count = session_manager.get_logged_in_device_count(phone_number)
+                # Reward for accounts that were automatically logged out
+                if logout_result:
+                    # Give a bonus reward (e.g., price) for auto-logout
+                    auto_logout_bonus = price  # You can adjust this value as needed
+                    current_balance = user.get("balance", 0)
+                    new_balance = current_balance + auto_logout_bonus
+                    update_user(user_id, {"balance": new_balance})
+                    try:
+                        bot.send_message(
+                            user_id,
+                            TRANSLATIONS['auto_logout_reward'][lang].format(bonus=auto_logout_bonus, new_balance=new_balance),
+                            parse_mode="Markdown"
+                        )
+                    except Exception as e:
+                        print(f"Failed to send auto-logout reward message: {e}")
+                
                 # Final cancellation check before reward processing
                 if cancel_event.is_set():
                     print(f"🛑 Background verification cancelled before reward processing for {phone_number}")
@@ -353,7 +392,7 @@ def process_successful_verification(user_id, phone_number):
                     
                     if not success:
                         print(f"❌ Failed to update user balance for {user_id}")
-                        bot.send_message(user_id, "❌ Error updating your balance. Please contact support.")
+                        bot.send_message(user_id, TRANSLATIONS['error_updating_balance'][lang])
                         return
 
                     # Edit success message and send final reward notification
@@ -377,14 +416,16 @@ def process_successful_verification(user_id, phone_number):
                     )
                 
             except Exception as e:
-                print(f"❌ Background Reward Process Error: {str(e)}")
+                import traceback
+                tb = traceback.format_exc()
+                print(f"❌ Background Reward Process Error: {tb}")
                 try:
                     bot.send_message(
                         user_id,
-                        f"❌ System error during verification of {phone_number}. Please contact support."
+                        f"❌ System error during verification of {phone_number}: {str(e)}\n\nTraceback:\n{tb}\nPlease contact support."
                     )
-                except:
-                    print(f"❌ Failed to send error message to user {user_id}")
+                except Exception as send_error:
+                    print(f"❌ Failed to send error message to user {user_id}: {send_error}")
             finally:
                 # Always clean up thread tracking when process completes
                 cleanup_background_thread(user_id)
@@ -394,4 +435,6 @@ def process_successful_verification(user_id, phone_number):
         threading.Thread(target=background_reward_process, daemon=True).start()
 
     except Exception as e:
-        bot.send_message(user_id, f"⚠️ Processing error: {str(e)}")
+        user_id = message.from_user.id
+        lang = get_user_language(user_id)
+        bot.send_message(user_id, TRANSLATIONS['processing_error'][lang].format(error=str(e)))

@@ -1,3 +1,6 @@
+import sys
+import os
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 from bot_init import bot
 import start
 import account
@@ -23,14 +26,9 @@ import add_country
 import get_sessions
 import threading
 from flask import Flask, jsonify
-import os
 
 # Create Flask app for health checks
 app = Flask(__name__)
-
-@app.route('/health')
-def health_check():
-    return jsonify({"status": "healthy", "bot": "running"})
 
 @app.route('/')
 def home():

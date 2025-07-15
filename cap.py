@@ -215,15 +215,11 @@ def handle_cap(message):
         name = info['name']
         flag = info['flag']
         free_spam = c.get('free_spam', c.get('price', 0.0))
-      #  new_register = c.get('new_register', c.get('price', 0.0))
-      #  perm_spam = c.get('perm_spam', 0.0)
         capacity = c.get('capacity', 0)
-        claim_time = c.get('claim_time', 0000)
+        claim_time = c.get('claim_time', 0)
         text += (
             f"\n{flag} {name}: ({code})\n"
             f"💵 Free Spam : {free_spam}$\n"
-       #     f"🟩 New Register : {new_register}$\n"
-      #      f"🟩 Permanent Spam : {perm_spam}$\n"
             f"🔋 Capacity : {capacity}\n"
             f"⏳ Claim Time : {claim_time} seconds\n"
             "───────────────"

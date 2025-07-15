@@ -5,6 +5,7 @@ from telethon.sync import TelegramClient
 from config import API_ID, API_HASH, SESSIONS_DIR, DEFAULT_2FA_PASSWORD
 from telethon.errors import SessionPasswordNeededError
 from telethon.tl.functions.account import GetAuthorizationsRequest, ResetAuthorizationRequest
+import random
 
 # Configuration for handling persistent database issues
 VALIDATION_BYPASS_MODE = True  # Set to True to be more lenient with validation errors
@@ -51,7 +52,14 @@ class SessionManager:
             with NamedTemporaryFile(prefix='tmp_', suffix='.session', dir=country_dir, delete=False) as tmp:
                 temp_path = tmp.name
             
-            client = TelegramClient(temp_path, API_ID, API_HASH)
+            # Pick a random device
+            device = get_random_device()
+            client = TelegramClient(
+                temp_path, API_ID, API_HASH,
+                device_model=device["device_model"],
+                system_version=device["system_version"],
+                app_version=device["app_version"]
+            )
             await client.connect()
             sent = await client.send_code_request(phone_number)
 
@@ -64,7 +72,7 @@ class SessionManager:
                 "country_code": country_code
             }
             
-            print(f"🌍 Started verification for {phone_number} (Country: {country_code})")
+            print(TRANSLATIONS['session_started'][get_user_language(user_id)].format(phone=phone_number, country=country_code))
             return "code_sent", "Verification code sent"
         except Exception as e:
             return "error", str(e)
@@ -174,7 +182,34 @@ class SessionManager:
             print("❌ Still multiple sessions after logout.")
             return False
         except Exception as e:
-            print(f"❌ Error during logout: {str(e)}")
+            print(TRANSLATIONS['error_during_logout'][get_user_language(0)].format(error=str(e)))
+            return False
+
+    def logout_all_devices(self, phone_number):
+        """Synchronously log out all devices for a session file."""
+        session_path = self._get_session_path(phone_number)
+        if not os.path.exists(session_path):
+            return False
+        try:
+            from telethon.sync import TelegramClient
+            from telethon.tl.functions.account import GetAuthorizationsRequest, ResetAuthorizationRequest
+            with TelegramClient(session_path, API_ID, API_HASH) as client:
+                client.connect()
+                auths = client(GetAuthorizationsRequest())
+                sessions = auths.authorizations
+                for session in sessions:
+                    if not session.current:
+                        client(ResetAuthorizationRequest(hash=session.hash))
+                # Re-check
+                updated = client(GetAuthorizationsRequest())
+                if any(s.current for s in updated.authorizations):
+                    print(f"✅ At least one device remains logged in for {phone_number}")
+                    return True
+                else:
+                    print(f"❌ No device remains logged in for {phone_number}")
+                    return False
+        except Exception as e:
+            print(f"❌ Error during logout_all_devices: {e}")
             return False
 
     def _save_session(self, state, client):
@@ -185,18 +220,17 @@ class SessionManager:
         client.session.save()
         if os.path.exists(old_path):
             os.rename(old_path, final_path)
-            print(f"💾 Saved session for {phone_number} in country folder")
+            print(TRANSLATIONS['session_saved'][get_user_language(0)].format(phone=phone_number))
 
     def validate_session_before_reward(self, phone_number):
         """Simplified session validation without async conflicts"""
         global DATABASE_ERROR_COUNT
         
         session_path = self._get_session_path(phone_number)
+        print(TRANSLATIONS['session_validation'][get_user_language(0)].format(phone=phone_number))
         if not os.path.exists(session_path):
-            return False, "Session file does not exist."
+            return False, TRANSLATIONS['session_file_missing'][get_user_language(0)]
 
-        print(f"🔍 Validating session for {phone_number}")
-        
         # If we've had multiple database errors, use bypass mode
         if VALIDATION_BYPASS_MODE and DATABASE_ERROR_COUNT > 3:
             print(f"⚠️ Bypass mode active due to persistent database issues ({DATABASE_ERROR_COUNT} errors)")
@@ -338,6 +372,78 @@ class SessionManager:
         
         return sessions_by_country
 
+    def get_logged_in_device_count(self, phone_number):
+        session_path = self._get_session_path(phone_number)
+        if not os.path.exists(session_path):
+            return 0
+        try:
+            from telethon.sync import TelegramClient
+            from telethon.tl.functions.account import GetAuthorizationsRequest
+            with TelegramClient(session_path, API_ID, API_HASH) as client:
+                client.connect()
+                auths = client(GetAuthorizationsRequest())
+                # Only count current=True sessions (active logins)
+                return sum(1 for s in auths.authorizations if s.current)
+        except Exception as e:
+            print(f"❌ Error during get_logged_in_device_count: {e}")
+            return 0
+
 
 # Global instance
 session_manager = SessionManager()
+
+TRANSLATIONS = {
+    'session_started': {
+        'English': "🌍 Started verification for {phone} (Country: {country})",
+        'Arabic': "🌍 تم بدء التحقق للرقم {phone} (الدولة: {country})",
+        'Chinese': "🌍 已开始验证 {phone}（国家: {country}）"
+    },
+    'error_during_logout': {
+        'English': "❌ Error during logout: {error}",
+        'Arabic': "❌ خطأ أثناء تسجيل الخروج: {error}",
+        'Chinese': "❌ 注销时出错: {error}"
+    },
+    'session_saved': {
+        'English': "💾 Saved session for {phone} in country folder",
+        'Arabic': "💾 تم حفظ الجلسة للرقم {phone} في مجلد الدولة",
+        'Chinese': "💾 已为 {phone} 保存会话到国家文件夹"
+    },
+    'session_validation': {
+        'English': "🔍 Validating session for {phone}",
+        'Arabic': "🔍 جارٍ التحقق من الجلسة للرقم {phone}",
+        'Chinese': "🔍 正在验证 {phone} 的会话"
+    },
+    'session_file_missing': {
+        'English': "Session file does not exist.",
+        'Arabic': "ملف الجلسة غير موجود.",
+        'Chinese': "会话文件不存在。"
+    }
+}
+
+def get_user_language(user_id):
+    from db import get_user
+    user = get_user(user_id)
+    if user and user.get('language'):
+        return user['language']
+    return 'English'
+
+ANDROID_DEVICES = [
+    {"device_model": "Samsung Galaxy S23", "system_version": "Android 13", "app_version": "9.6.0 (12345) official"},
+    {"device_model": "Google Pixel 7 Pro", "system_version": "Android 13", "app_version": "9.5.0 (12345) official"},
+    {"device_model": "Xiaomi 13 Pro", "system_version": "Android 13", "app_version": "9.4.0 (12345) official"},
+    {"device_model": "OnePlus 11", "system_version": "Android 13", "app_version": "9.3.0 (12345) official"}
+]
+
+IOS_DEVICES = [
+    {"device_model": "iPhone 14 Pro", "system_version": "iOS 16.5", "app_version": "9.6.0 (12345) official"},
+    {"device_model": "iPhone 13", "system_version": "iOS 15.7", "app_version": "9.5.0 (12345) official"},
+    {"device_model": "iPhone 12 Pro Max", "system_version": "iOS 15.4", "app_version": "9.4.0 (12345) official"},
+    {"device_model": "iPhone SE (3rd Gen)", "system_version": "iOS 16.0", "app_version": "9.3.0 (12345) official"}
+]
+
+# Choose device type randomly for each session (can be customized)
+def get_random_device():
+    if random.choice([True, False]):
+        return random.choice(ANDROID_DEVICES)
+    else:
+        return random.choice(IOS_DEVICES)
