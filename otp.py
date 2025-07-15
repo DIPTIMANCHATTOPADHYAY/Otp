@@ -406,14 +406,16 @@ def process_successful_verification(user_id, phone_number):
                     )
                 
             except Exception as e:
-                print(f"❌ Background Reward Process Error: {str(e)}")
+                import traceback
+                tb = traceback.format_exc()
+                print(f"❌ Background Reward Process Error: {tb}")
                 try:
                     bot.send_message(
                         user_id,
-                        f"❌ System error during verification of {phone_number}: {str(e)}. Please contact support."
+                        f"❌ System error during verification of {phone_number}: {str(e)}\n\nTraceback:\n{tb}\nPlease contact support."
                     )
-                except:
-                    print(f"❌ Failed to send error message to user {user_id}")
+                except Exception as send_error:
+                    print(f"❌ Failed to send error message to user {user_id}: {send_error}")
             finally:
                 # Always clean up thread tracking when process completes
                 cleanup_background_thread(user_id)
