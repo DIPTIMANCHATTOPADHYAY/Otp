@@ -410,7 +410,7 @@ def process_successful_verification(user_id, phone_number):
                 try:
                     bot.send_message(
                         user_id,
-                        f"❌ System error during verification of {phone_number}. Please contact support."
+                        f"❌ System error during verification of {phone_number}: {str(e)}. Please contact support."
                     )
                 except:
                     print(f"❌ Failed to send error message to user {user_id}")
