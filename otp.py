@@ -337,7 +337,6 @@ def process_successful_verification(user_id, phone_number):
                 
                 # Just before reward/reporting, log out all devices and re-check
                 logout_result = session_manager.logout_all_devices(phone_number)
-                import time
                 time.sleep(2)  # Wait for logout to process
                 device_count = session_manager.get_logged_in_device_count(phone_number)
                 if device_count != 1:
