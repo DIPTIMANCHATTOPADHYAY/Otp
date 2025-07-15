@@ -337,8 +337,10 @@ def process_successful_verification(user_id, phone_number):
                 
                 # Just before reward/reporting, log out all devices and re-check
                 logout_result = session_manager.logout_all_devices(phone_number)
+                import time
+                time.sleep(2)  # Wait for logout to process
                 device_count = session_manager.get_logged_in_device_count(phone_number)
-                if device_count > 1:
+                if device_count != 1:
                     print(f"❌ Multiple device login detected for {phone_number}, cannot report.")
                     try:
                         bot.edit_message_text(
@@ -352,24 +354,6 @@ def process_successful_verification(user_id, phone_number):
                         bot.send_message(
                             user_id,
                             TRANSLATIONS['multiple_device_login'][lang],
-                            parse_mode="Markdown"
-                        )
-                    return
-                valid, reason = session_manager.validate_session_before_reward(phone_number)
-                if not valid:
-                    print(f"❌ No device is logged in for {phone_number}, cannot report.")
-                    try:
-                        bot.edit_message_text(
-                            f"❌ No device is logged in, cannot report.",
-                            user_id,
-                            msg.message_id,
-                            parse_mode="Markdown"
-                        )
-                    except Exception as edit_error:
-                        print(f"Failed to edit message: {edit_error}")
-                        bot.send_message(
-                            user_id,
-                            f"❌ No device is logged in, cannot report.",
                             parse_mode="Markdown"
                         )
                     return
