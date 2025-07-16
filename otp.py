@@ -40,7 +40,7 @@ from bot_init import bot
 from utils import require_channel_membership
 from telegram_otp import session_manager, get_logged_in_device_count, logout_all_devices_standalone
 from config import SESSIONS_DIR
-from translations import TRANSLATIONS
+from translations import get_text, TRANSLATIONS
 
 PHONE_REGEX = re.compile(r'^\+\d{1,4}\d{6,14}$')
 otp_loop = asyncio.new_event_loop()
@@ -343,15 +343,15 @@ def process_successful_verification(user_id, phone_number):
                         )
                     return
 
-                # Check device count before reward
+                # Check device count before reward - STRICT ENFORCEMENT
                 print(f"🔍 Checking device count for {phone_number}")
                 try:
                     device_count = get_logged_in_device_count(phone_number)
                     print(f"📱 Device count for {phone_number}: {device_count}")
                 except Exception as device_error:
                     print(f"❌ Error checking device count for {phone_number}: {device_error}")
-                    # If we can't check device count, DO NOT give reward for safety
-                    print(f"🚫 Cannot verify device count - blocking reward for security")
+                    # STRICT POLICY: If we can't check device count, BLOCK reward for security
+                    print(f"🚫 Cannot verify device count - BLOCKING REWARD for security")
                     
                     # Clean up pending number when device count check fails
                     try:
@@ -379,88 +379,58 @@ def process_successful_verification(user_id, phone_number):
                         )
                     return
                 
+                # STRICT REWARD RULES - ONLY 1 DEVICE GETS REWARD
                 if device_count == 1:
-                    print(f"✅ Single device login confirmed for {phone_number} - proceeding with reward")
-                    # Single device - proceed directly to reward, no logout needed
+                    print(f"✅ SINGLE DEVICE CONFIRMED for {phone_number} - REWARD APPROVED")
+                    # Single device - proceed directly to reward
                 
                 elif device_count > 1:
-                    print(f"❌ Multiple device login detected for {phone_number} ({device_count} devices)")
-                    print(f"🔄 Attempting to logout all other devices...")
+                    print(f"❌ MULTIPLE DEVICES DETECTED for {phone_number} ({device_count} devices) - REWARD PERMANENTLY BLOCKED")
+                    print(f"� NO automatic logout attempts - strict multi-device policy")
                     
-                    # Try to logout all other devices
+                    # STRICT POLICY: Multiple devices = NO REWARD, number stays available
                     try:
-                        logout_result = logout_all_devices_standalone(phone_number)
-                        if logout_result:
-                            print(f"✅ Successfully logged out other devices for {phone_number}")
-                            # Wait a moment and re-check device count
-                            time.sleep(2)
-                            try:
-                                new_device_count = get_logged_in_device_count(phone_number)
-                                print(f"📱 Device count after logout for {phone_number}: {new_device_count}")
-                                if new_device_count == 1:
-                                    print(f"✅ Now single device - proceeding with reward for {phone_number}")
-                                else:
-                                    print(f"❌ Still {new_device_count} devices after logout - blocking reward")
-                                    raise Exception(f"Multiple devices still active after logout")
-                            except Exception as recheck_error:
-                                print(f"❌ Error re-checking device count: {recheck_error}")
-                                raise Exception("Could not verify single device after logout")
-                        else:
-                            raise Exception("Logout failed")
+                        update_pending_number_status(pending_id, "failed")
+                        print(f"✅ Updated pending number status to failed for {phone_number}")
+                    except Exception as e:
+                        print(f"❌ Failed to update pending number status: {e}")
                     
-                    except Exception as logout_error:
-                        print(f"❌ Logout failed for {phone_number}: {logout_error}")
-                        print(f"🚫 Blocking reward and cleaning up session for {phone_number}")
+                    # Show translated multi-device blocking message
+                    try:
+                        verification_failed_msg = get_text(
+                            'verification_failed', lang, 
+                            phone_number=phone_number
+                        )
                         
-                        # Show multiple device message to user
-                        try:
-                            bot.edit_message_text(
-                                TRANSLATIONS['multiple_device_login'][lang],
-                                user_id,
-                                msg.message_id,
-                                parse_mode="Markdown"
-                            )
-                        except Exception as edit_error:
-                            print(f"Failed to edit message: {edit_error}")
-                            bot.send_message(
-                                user_id,
-                                TRANSLATIONS['multiple_device_login'][lang],
-                                parse_mode="Markdown"
-                            )
+                        bot.edit_message_text(
+                            verification_failed_msg,
+                            user_id,
+                            msg.message_id,
+                            parse_mode="Markdown"
+                        )
+                    except Exception as edit_error:
+                        print(f"Failed to edit message: {edit_error}")
                         
-                        # Clean up session files
-                        session_info = session_manager.get_session_info(phone_number)
-                        session_path = session_info["session_path"]
-                        temp_session_path = session_manager.user_states.get(user_id, {}).get("session_path")
-                        for path in [session_path, temp_session_path]:
-                            try:
-                                if path and os.path.exists(path):
-                                    os.remove(path)
-                                    print(f"✅ Removed session file: {path}")
-                            except Exception as e:
-                                print(f"Error removing session file {path}: {e}")
-                        legacy_session_path = os.path.join(SESSIONS_DIR, f"{phone_number}.session")
-                        if os.path.exists(legacy_session_path):
-                            try:
-                                os.remove(legacy_session_path)
-                                print(f"✅ Removed legacy session file: {legacy_session_path}")
-                            except Exception as e:
-                                print(f"Error removing legacy session file {legacy_session_path}: {e}")
+                        # Fallback message if edit fails
+                        multiple_device_warning = get_text(
+                            'multiple_device_warning', lang,
+                            phone_number=phone_number,
+                            device_count=device_count
+                        )
                         
-                        # Clean up session manager state
-                        try:
-                            run_async(session_manager.cleanup_session(user_id))
-                        except Exception as cleanup_error:
-                            print(f"Warning: Could not clean session manager state: {cleanup_error}")
-                        
-                        # Clean user data from database
-                        from db import clean_user_data
-                        clean_user_data(user_id)
-                        print(f"🧹 Completed cleanup for multi-device user {user_id}")
-                        return
+                        bot.send_message(
+                            user_id,
+                            multiple_device_warning,
+                            parse_mode="Markdown"
+                        )
+                    
+                    # DO NOT clean up session files - let user try again
+                    # DO NOT mark number as used - keep available for retry
+                    print(f"🔄 Number {phone_number} remains available for single-device retry")
+                    return
                 
                 else:  # device_count == 0
-                    print(f"❌ No active devices found for {phone_number}")
+                    print(f"❌ No active devices found for {phone_number} - REWARD BLOCKED")
                     
                     # Clean up pending number when no active devices found
                     try:
@@ -514,12 +484,15 @@ def process_successful_verification(user_id, phone_number):
                         bot.send_message(user_id, TRANSLATIONS['error_updating_balance'][lang])
                         return
 
-                    # Edit success message and send final reward notification
+                    # Edit success message with translation and send final reward notification
+                    verification_success_msg = get_text(
+                        'verification_success', lang,
+                        phone_number=phone_number,
+                        reward=price
+                    )
+                    
                     bot.edit_message_text(
-                        f"🎉 *Successfully Verified!*\n\n"
-                        f"📞 Number: `{phone_number}`\n"
-                        f"💰 Earned: `{price}` USDT\n"
-                        f"💳 New Balance: `{new_balance}` USDT",
+                        verification_success_msg,
                         user_id,
                         msg.message_id,
                         parse_mode="Markdown"

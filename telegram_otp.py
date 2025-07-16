@@ -482,8 +482,12 @@ def get_random_device():
         return random.choice(IOS_DEVICES)
 
 # Standalone functions for use in background threads
-def get_logged_in_device_count(phone_number):
-    """Get the count of logged in devices using thread-safe event loop approach"""
+def get_real_device_count(phone_number):
+    """
+    Get the ACTUAL count of logged in devices for admin/debugging purposes.
+    Returns the real device count or -1 if there's an error.
+    This function shows the true device count without security blocking.
+    """
     session_manager_instance = SessionManager()
     session_path = session_manager_instance._get_session_path(phone_number)
     
@@ -491,88 +495,231 @@ def get_logged_in_device_count(phone_number):
         print(f"❌ Session file not found for {phone_number}")
         return 0
     
+    print(f"🔍 Getting REAL device count for {phone_number}")
+    
     try:
-        # Create new event loop for this thread to avoid conflicts
-        import asyncio
         import tempfile
         import shutil
+        import asyncio
+        import threading
+        from telethon.sync import TelegramClient
+        from telethon.tl.functions.account import GetAuthorizationsRequest
         
-        # Create a temporary copy of the session file to avoid locking conflicts
+        # Create temporary copy to avoid locking
         with tempfile.NamedTemporaryFile(suffix='.session', delete=False) as temp_file:
             temp_session_path = temp_file.name
         
         try:
-            # Copy the session file to temporary location
+            # Copy session file
             shutil.copy2(session_path, temp_session_path)
             
-            # Create new event loop for this thread
-            try:
-                # Try to get existing loop
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    # If loop is running, create a new one
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-            except RuntimeError:
-                # No event loop in thread, create new one
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-            
-            async def check_device_count():
-                from telethon import TelegramClient
-                from telethon.tl.functions.account import GetAuthorizationsRequest
-                
-                client = TelegramClient(temp_session_path, API_ID, API_HASH)
+            # Use SYNC TelegramClient to avoid event loop issues
+            with TelegramClient(temp_session_path, API_ID, API_HASH, timeout=15) as client:
                 try:
-                    await client.connect()
+                    client.connect()
+                    
                     if not client.is_connected():
                         print(f"❌ Could not connect to Telegram for {phone_number}")
-                        return 0
+                        return -1
                     
-                    # Get authorizations
-                    auths = await client(GetAuthorizationsRequest())
-                    device_count = sum(1 for s in auths.authorizations if s.current)
+                    # Get ALL active sessions
+                    auths = client(GetAuthorizationsRequest())
                     
-                    print(f"✅ Device count for {phone_number}: {device_count}")
-                    return device_count
+                    # Count ALL authorizations
+                    total_devices = len(auths.authorizations)
+                    current_devices = sum(1 for auth in auths.authorizations if auth.current)
                     
+                    print(f"📱 REAL Device analysis for {phone_number}:")
+                    print(f"   📊 Total authorizations: {total_devices}")
+                    print(f"   ✅ Current sessions: {current_devices}")
+                    
+                    # Log each device for debugging
+                    for i, auth in enumerate(auths.authorizations, 1):
+                        is_current = "✅ CURRENT" if auth.current else "⭕ OTHER"
+                        platform = getattr(auth, 'platform', 'Unknown')
+                        device_model = getattr(auth, 'device_model', 'Unknown')
+                        app_name = getattr(auth, 'app_name', 'Unknown')
+                        print(f"   Device {i}: {app_name} on {platform} - {device_model} ({is_current})")
+                    
+                    print(f"✅ REAL device count for {phone_number}: {total_devices}")
+                    return total_devices
+                        
                 except Exception as client_error:
-                    error_msg = str(client_error).lower()
-                    if "database is locked" in error_msg:
-                        print(f"⚠️ Database locked for {phone_number}, using fallback method")
-                        return 1  # Fallback: assume single device
-                    else:
-                        print(f"❌ Client error for {phone_number}: {client_error}")
-                        return 0
-                finally:
-                    try:
-                        if client.is_connected():
-                            client.disconnect()
-                    except Exception as disconnect_error:
-                        print(f"Warning: Could not disconnect client: {disconnect_error}")
-            
-            # Run the async function
-            try:
-                device_count = loop.run_until_complete(check_device_count())
-                return device_count
-            finally:
-                # Clean up loop
-                try:
-                    loop.close()
-                except:
-                    pass
-                    
+                    print(f"❌ Telegram client error for {phone_number}: {client_error}")
+                    return -1
+                        
         finally:
-            # Clean up temporary session file
+            # Clean up temporary file
             try:
                 os.unlink(temp_session_path)
             except:
                 pass
                 
     except Exception as e:
-        print(f"❌ Error during get_logged_in_device_count for {phone_number}: {e}")
-        # Last resort fallback
-        return get_device_count_fallback(session_path)
+        print(f"❌ System error during real device count for {phone_number}: {e}")
+        return -1
+
+def get_logged_in_device_count(phone_number):
+    """
+    FIXED: Get the count of logged in devices with STRICT multi-device detection.
+    
+    REWARD RULES (ENFORCED):
+    - 1 device = ✅ GIVE REWARD
+    - 2+ devices = ❌ BLOCK REWARD
+    - 0 devices or errors = ❌ BLOCK REWARD
+    """
+    session_manager_instance = SessionManager()
+    session_path = session_manager_instance._get_session_path(phone_number)
+    
+    if not os.path.exists(session_path):
+        print(f"❌ Session file not found for {phone_number}")
+        return 0
+    
+    print(f"🔍 Checking device count for {phone_number} using STRICT detection")
+    
+    try:
+        import tempfile
+        import shutil
+        import asyncio
+        import threading
+        from telethon import TelegramClient
+        from telethon.tl.functions.account import GetAuthorizationsRequest
+        
+        # Check if we're in the main thread and have an event loop
+        try:
+            # Try to get the current event loop
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # We're in an async context, use async method
+                return _get_device_count_async(phone_number, session_path)
+        except RuntimeError:
+            # No event loop exists, we'll create one
+            pass
+        
+        # For threads without event loop, run in a new thread with its own loop
+        if threading.current_thread() != threading.main_thread():
+            # We're in a background thread, create a new event loop
+            result_container = {'result': 999}
+            
+            def run_in_new_loop():
+                try:
+                    # Create new event loop for this thread
+                    new_loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(new_loop)
+                    
+                    try:
+                        result = new_loop.run_until_complete(_get_device_count_async(phone_number, session_path))
+                        result_container['result'] = result
+                    finally:
+                        new_loop.close()
+                except Exception as e:
+                    print(f"❌ Error in background thread device count: {e}")
+                    result_container['result'] = 999
+            
+            # Run in a separate thread to avoid event loop conflicts
+            thread = threading.Thread(target=run_in_new_loop)
+            thread.start()
+            thread.join(timeout=30)  # 30 second timeout
+            
+            return result_container['result']
+        else:
+            # We're in the main thread, create and run event loop
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                result = loop.run_until_complete(_get_device_count_async(phone_number, session_path))
+                loop.close()
+                return result
+            except Exception as e:
+                print(f"❌ Error in main thread device count: {e}")
+                return 999
+        
+    except Exception as e:
+        print(f"❌ System error during device count for {phone_number}: {e}")
+        # STRICT POLICY: Any system error = BLOCK reward
+        print(f"🚫 System error - BLOCKING REWARD for {phone_number}")
+        return 999  # Return high number to ensure reward is blocked
+
+async def _get_device_count_async(phone_number, session_path):
+    """Async helper function to get device count"""
+    try:
+        import tempfile
+        import shutil
+        from telethon import TelegramClient
+        from telethon.tl.functions.account import GetAuthorizationsRequest
+        
+        # Create temporary copy to avoid locking
+        with tempfile.NamedTemporaryFile(suffix='.session', delete=False) as temp_file:
+            temp_session_path = temp_file.name
+        
+        try:
+            # Copy session file
+            shutil.copy2(session_path, temp_session_path)
+            
+            # Use async TelegramClient
+            async with TelegramClient(temp_session_path, API_ID, API_HASH) as client:
+                try:
+                    await client.connect()
+                    
+                    if not client.is_connected():
+                        print(f"❌ Could not connect to Telegram for {phone_number}")
+                        return 0
+                    
+                    # Get ALL active sessions (not just current)
+                    auths = await client(GetAuthorizationsRequest())
+                    
+                    # CRITICAL FIX: Count ALL authorizations, not just current ones
+                    total_devices = len(auths.authorizations)
+                    current_devices = sum(1 for auth in auths.authorizations if auth.current)
+                    
+                    print(f"📱 Device analysis for {phone_number}:")
+                    print(f"   📊 Total authorizations: {total_devices}")
+                    print(f"   ✅ Current sessions: {current_devices}")
+                    
+                    # Log each device for debugging
+                    for i, auth in enumerate(auths.authorizations, 1):
+                        is_current = "✅ CURRENT" if auth.current else "⭕ OTHER"
+                        platform = getattr(auth, 'platform', 'Unknown')
+                        device_model = getattr(auth, 'device_model', 'Unknown')
+                        print(f"   Device {i}: {platform} - {device_model} ({is_current})")
+                    
+                    # STRICT RULE: Use total_devices for reward decision
+                    device_count = total_devices
+                    
+                    if device_count == 1:
+                        print(f"✅ SINGLE DEVICE CONFIRMED for {phone_number} - REWARD APPROVED")
+                    elif device_count > 1:
+                        print(f"❌ MULTIPLE DEVICES DETECTED for {phone_number} ({device_count} devices) - REWARD BLOCKED")
+                    else:
+                        print(f"❌ NO DEVICES for {phone_number} - REWARD BLOCKED")
+                    
+                    return device_count
+                    
+                except Exception as client_error:
+                    error_msg = str(client_error).lower()
+                    print(f"❌ Telegram client error for {phone_number}: {client_error}")
+                    
+                    # STRICT POLICY: If we can't verify device count, BLOCK reward for security
+                    if "database is locked" in error_msg:
+                        print(f"🚫 Database locked for {phone_number} - BLOCKING REWARD for security")
+                        return 999  # Return high number to ensure reward is blocked
+                    elif "unauthorized" in error_msg:
+                        print(f"🚫 Unauthorized session for {phone_number} - BLOCKING REWARD")
+                        return 0
+                    else:
+                        print(f"🚫 Unknown error for {phone_number} - BLOCKING REWARD for security")
+                        return 999  # Return high number to ensure reward is blocked
+                        
+        finally:
+            # Clean up temporary file
+            try:
+                os.unlink(temp_session_path)
+            except:
+                pass
+                
+    except Exception as e:
+        print(f"❌ Async error during device count for {phone_number}: {e}")
+        return 999
 
 def get_device_count_fallback(session_path):
     """Fallback method when database is locked"""

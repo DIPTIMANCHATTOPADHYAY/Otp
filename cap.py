@@ -1,6 +1,10 @@
-from db import get_country_capacities
+from db import get_country_capacities, get_user
 from utils import require_channel_membership
 from bot_init import bot
+from translations import get_text
+
+# Import withdrawal state to check for active withdrawals
+from withdraw import user_withdraw_state, clear_withdraw_state
 
 COUNTRY_INFO = {
     "+93": {"name": "Afghanistan", "flag": "🇦🇫"},
@@ -206,6 +210,15 @@ def get_country_info(code):
 @bot.message_handler(commands=['cap'])
 @require_channel_membership
 def handle_cap(message):
+    user_id = message.from_user.id
+    
+    # Check if user is in withdrawal state and cancel it
+    if user_id in user_withdraw_state:
+        clear_withdraw_state(user_id)
+        user = get_user(user_id) or {}
+        user_language = user.get('language', 'English')
+        bot.send_message(message.chat.id, get_text('withdrawal_cancelled', user_language))
+    
     countries = get_country_capacities()
     text = "🔋 *Current Capacity Status*\n"
     text += "───────────────\n"

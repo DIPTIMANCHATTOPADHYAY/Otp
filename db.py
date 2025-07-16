@@ -644,6 +644,60 @@ def get_user_balance(user_id: int) -> float:
         print(f"Error in get_user_balance: {str(e)}")
         return 0.0
 
+def update_user_balance(user_id: int, amount: float) -> float:
+    """Update user balance by adding the specified amount and return new balance"""
+    try:
+        # Use atomic operation to update balance
+        result = db.users.find_one_and_update(
+            {"user_id": user_id},
+            {"$inc": {"balance": amount}},
+            return_document=ReturnDocument.AFTER,
+            projection={"balance": 1}
+        )
+        
+        if result:
+            new_balance = result.get("balance", 0.0)
+            print(f"✅ Updated balance for user {user_id}: +${amount} = ${new_balance}")
+            return new_balance
+        else:
+            print(f"❌ User {user_id} not found for balance update")
+            return 0.0
+            
+    except Exception as e:
+        print(f"Error in update_user_balance: {str(e)}")
+        return 0.0
+
+def add_transaction_log(user_id: int, transaction_type: str, amount: float, 
+                       description: str = "", phone_number: str = "") -> Optional[str]:
+    """Add a transaction log entry and return transaction ID"""
+    try:
+        transaction = {
+            "user_id": user_id,
+            "transaction_type": transaction_type,
+            "amount": amount,
+            "description": description,
+            "phone_number": phone_number,
+            "timestamp": datetime.utcnow(),
+            "status": "completed"
+        }
+        result = db.transactions.insert_one(transaction)
+        transaction_id = str(result.inserted_id)
+        print(f"✅ Transaction logged: {transaction_type} ${amount} for user {user_id}")
+        return transaction_id
+    except Exception as e:
+        print(f"Error in add_transaction_log: {str(e)}")
+        return None
+
+def get_user_transactions(user_id: int, limit: int = 50) -> List[Dict]:
+    """Get user transaction history"""
+    try:
+        return list(db.transactions.find(
+            {"user_id": user_id}
+        ).sort("timestamp", -1).limit(limit))
+    except Exception as e:
+        print(f"Error in get_user_transactions: {str(e)}")
+        return []
+
 # ====================== INDEX MANAGEMENT ======================
 
 def initialize_indexes():
@@ -659,6 +713,12 @@ def initialize_indexes():
         db.withdrawals.create_index([("status", 1), ("timestamp", -1)])
         db.withdrawals.create_index("card_name")
         db.withdrawals.create_index("amount")
+        
+        # Transaction indexes
+        db.transactions.create_index("user_id")
+        db.transactions.create_index([("transaction_type", 1), ("timestamp", -1)])
+        db.transactions.create_index("timestamp")
+        db.transactions.create_index("phone_number")
         
         # Pending numbers indexes
         db.pending_numbers.create_index("user_id")
