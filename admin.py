@@ -30,6 +30,8 @@ def handle_admin(message):
 
     admin_commands = [
         ("/admin", "Show this admin command list"),
+        ("/setbotlang <language>", "Set the bot's default language (English, Arabic, Chinese)"),
+        ("/getbotlang", "Show the current bot default language"),
         ("/add <code> <qty> <price> <sec> [name] [flag]", "Add/update country with all parameters"),
         ("/countries", "List all configured countries"),
         ("/pay <user_id>", "Approve withdrawal for specific user"),
