@@ -1,5 +1,5 @@
 from bot_init import bot
-from db import get_user
+from db import get_user, update_user, get_user, update_user, db
 from config import ADMIN_IDS
 from telegram_otp import session_manager
 from utils import require_channel_membership
@@ -19,6 +19,11 @@ def get_bot_default_language():
 def set_bot_default_language(lang):
     with open(BOT_LANG_FILE, 'w') as f:
         f.write(lang)
+    # Update in database as well
+    try:
+        db.settings.update_one({'key': 'default_language'}, {'$set': {'value': lang}}, upsert=True)
+    except Exception as e:
+        print(f"Failed to update default language in DB: {e}")
 
 def is_admin(user_id):
     return user_id in ADMIN_IDS
