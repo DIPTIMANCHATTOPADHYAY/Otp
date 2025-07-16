@@ -57,11 +57,11 @@ def handle_get_country_sessions(message):
                         zipf.write(path, arcname)
             tmp_zip_path = tmp_zip.name
         summary = (
-            f"\ud83d\udce6 Session Files for {country_code}\n\n"
-            f"\ud83d\udcc1 Files: {file_count}\n"
-            f"\ud83d\udce4 Size: {format_size(total_size)}\n"
-            f"\ud83d\udcc5 Created: {created_str}\n\n"
-            f"\u2705 All session files for {country_code} have been downloaded."
+            f"📦 Session Files for {country_code}\n\n"
+            f"📁 Files: {file_count}\n"
+            f"💾 Size: {format_size(total_size)}\n"
+            f"📅 Created: {created_str}\n\n"
+            f"✅ All session files for {country_code} have been downloaded."
         )
         bot.send_message(message.chat.id, summary)
         with open(tmp_zip_path, 'rb') as f:
@@ -105,11 +105,11 @@ def handle_get_all_sessions(message):
             os.unlink(tmp_zip_path)
             return
         summary = (
-            f"\ud83d\udce6 All Session Files\n\n"
-            f"\ud83d\udcc1 Files: {file_count}\n"
-            f"\ud83d\udce4 Size: {format_size(total_size)}\n"
-            f"\ud83d\udcc5 Created: {created_str}\n\n"
-            f"\u2705 All session files have been downloaded."
+            f"📦 All Session Files\n\n"
+            f"📁 Files: {file_count}\n"
+            f"💾 Size: {format_size(total_size)}\n"
+            f"📅 Created: {created_str}\n\n"
+            f"✅ All session files have been downloaded."
         )
         bot.send_message(message.chat.id, summary)
         with open(tmp_zip_path, 'rb') as f:
@@ -159,11 +159,11 @@ def handle_getinfo_country_sessions(message):
             tmp_json.write(json.dumps(info_list, indent=2).encode('utf-8'))
             tmp_json_path = tmp_json.name
         summary = (
-            f"\ud83d\udce6 Session Info for {country_code}\n\n"
-            f"\ud83d\udcc1 Files: {file_count}\n"
-            f"\ud83d\udce4 Size: {format_size(total_size)}\n"
-            f"\ud83d\udcc5 Created: {created_str}\n\n"
-            f"\u2705 All session info for {country_code} has been downloaded."
+            f"📦 Session Info for {country_code}\n\n"
+            f"📁 Files: {file_count}\n"
+            f"💾 Size: {format_size(total_size)}\n"
+            f"📅 Created: {created_str}\n\n"
+            f"✅ All session info for {country_code} has been downloaded."
         )
         bot.send_message(message.chat.id, summary)
         with open(tmp_json_path, 'rb') as f:
