@@ -84,20 +84,22 @@ def handle_getinfo_country_sessions(message):
     if not sessions or country_code not in sessions or not sessions[country_code]:
         bot.reply_to(message, f"❌ No sessions found for {country_code}")
         return
-    info_list = []
-    for session in sessions[country_code]:
-        info = {
-            'phone_number': session.get('phone_number'),
-            'size': session.get('size'),
-            'modified': session.get('modified'),
-            'created': session.get('created'),
-            'session_path': session.get('session_path')
-        }
-        info_list.append(info)
-    # Send as JSON file
-    with tempfile.NamedTemporaryFile(suffix='.json', delete=False, mode='w') as tmp_json:
-        json.dump(info_list, tmp_json, indent=2)
-        tmp_json_path = tmp_json.name
-    with open(tmp_json_path, 'rb') as f:
+    # Create a zip with one JSON file per session, named as country_code/phone_number.json
+    with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as tmp_zip:
+        with zipfile.ZipFile(tmp_zip, 'w') as zipf:
+            for session in sessions[country_code]:
+                info = {
+                    'phone_number': session.get('phone_number'),
+                    'size': session.get('size'),
+                    'modified': session.get('modified'),
+                    'created': session.get('created'),
+                    'session_path': session.get('session_path')
+                }
+                phone = session.get('phone_number') or os.path.splitext(os.path.basename(session.get('session_path', '')))[0]
+                json_bytes = json.dumps(info, indent=2).encode('utf-8')
+                arcname = os.path.join(country_code.lstrip('+'), f"{phone}.json")
+                zipf.writestr(arcname, json_bytes)
+        tmp_zip_path = tmp_zip.name
+    with open(tmp_zip_path, 'rb') as f:
         bot.send_document(message.chat.id, f, caption=f"Session info for {country_code}")
-    os.unlink(tmp_json_path)
+    os.unlink(tmp_zip_path)
