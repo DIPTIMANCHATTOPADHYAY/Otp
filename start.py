@@ -8,6 +8,8 @@ import telebot.types
 # Import withdrawal state to check for active withdrawals
 from withdraw import user_withdraw_state, clear_withdraw_state
 
+LANGUAGES = ['English', 'Arabic', 'Chinese']
+
 @bot.message_handler(commands=['start'])
 @require_channel_membership
 def handle_start(message):
@@ -23,7 +25,8 @@ def handle_start(message):
     user = get_user(user_id) or {}
     if not user.get('language'):
         markup = telebot.types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
-        markup.add('English', 'Arabic', 'Chinese')
+        for lang in LANGUAGES:
+            markup.add(lang)
         bot.send_message(
             message.chat.id,
             get_text('language_selection'),
@@ -43,20 +46,22 @@ def handle_start(message):
     lang = user.get('language', 'English')
     bot.send_message(message.chat.id, get_text('welcome_message', lang), parse_mode="Markdown")
 
-@bot.message_handler(func=lambda m: m.text in ['English', 'Arabic', 'Chinese'])
+@bot.message_handler(func=lambda m: get_user(m.from_user.id) and get_user(m.from_user.id).get('language_selecting') and m.text in LANGUAGES)
 def handle_language_select(message):
     user_id = message.from_user.id
     lang = message.text
     update_user(user_id, {"language": lang, "language_selecting": False})
-    # Remove keyboard
     markup = telebot.types.ReplyKeyboardRemove()
     bot.send_message(message.chat.id, get_text('language_changed', lang), reply_markup=markup)
+    # Optionally, send the welcome message in the new language
+    bot.send_message(message.chat.id, get_text('welcome_message', lang), parse_mode="Markdown")
 
 @bot.message_handler(commands=['language'])
 def handle_language_command(message):
     user_id = message.from_user.id
     markup = telebot.types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
-    markup.add('English', 'Arabic', 'Chinese')
+    for lang in LANGUAGES:
+        markup.add(lang)
     bot.send_message(
         message.chat.id,
         get_text('language_selection'),
