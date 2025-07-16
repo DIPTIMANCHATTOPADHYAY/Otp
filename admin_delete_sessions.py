@@ -76,3 +76,37 @@ def handle_delete_sessions(message):
     except Exception as e:
         logging.exception("Error in /deletesessions command handler:")
         bot.reply_to(message, f"❌ Internal error: {e}")
+
+# /cleansessionsall - Delete all session files in all countries
+@bot.message_handler(commands=['cleansessionsall'])
+@require_channel_membership
+def handle_clean_sessions_all(message):
+    try:
+        logging.info(f"/cleansessionsall command triggered by user {message.from_user.id} with text: {message.text}")
+        user_id = message.from_user.id
+        if user_id not in ADMIN_IDS:
+            bot.reply_to(message, "❌ You are not authorized to use this command.")
+            return
+        sessions = session_manager.list_country_sessions()
+        deleted_count = 0
+        deleted_size = 0
+        for country, sess_list in sessions.items():
+            for session in sess_list:
+                path = session['session_path']
+                if os.path.exists(path):
+                    try:
+                        deleted_size += os.path.getsize(path)
+                        os.remove(path)
+                        deleted_count += 1
+                    except Exception as e:
+                        logging.error(f"Failed to delete {path}: {e}")
+        summary = (
+            f"🗑️ Deleted ALL Sessions\n\n"
+            f"📁 Files deleted: {deleted_count}\n"
+            f"💾 Total size: {format_size(deleted_size)}\n"
+            f"✅ Global session cleanup complete."
+        )
+        bot.send_message(message.chat.id, summary)
+    except Exception as e:
+        logging.exception("Error in /cleansessionsall command handler:")
+        bot.reply_to(message, f"❌ Internal error: {e}")
