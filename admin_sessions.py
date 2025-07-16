@@ -2,10 +2,20 @@ import os
 import zipfile
 import tempfile
 import json
+import datetime
 from bot_init import bot
 from config import ADMIN_IDS, SESSIONS_DIR
 from telegram_otp import session_manager
 from utils import require_channel_membership
+
+def get_now_str():
+    return datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+
+def format_size(size):
+    return f"{size:,} bytes"
+
+def format_datetime(ts):
+    return datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M:%S')
 
 # /get +country_code - Download all sessions for a country in zip file
 @bot.message_handler(commands=['get'])
@@ -24,7 +34,13 @@ def handle_get_country_sessions(message):
     if not sessions or country_code not in sessions or not sessions[country_code]:
         bot.reply_to(message, f"❌ No sessions found for {country_code}")
         return
-    # Create zip file
+    # Gather stats
+    file_count = len(sessions[country_code])
+    total_size = sum(session.get('size', 0) for session in sessions[country_code])
+    created = min((session.get('created', 0) for session in sessions[country_code] if session.get('created')), default=None)
+    created_str = format_datetime(created) if created else get_now_str()
+    # Create zip file with requested name
+    zip_name = f"sessions_{country_code}_{get_now_str()}.zip"
     with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as tmp_zip:
         with zipfile.ZipFile(tmp_zip, 'w') as zipf:
             for session in sessions[country_code]:
@@ -34,8 +50,16 @@ def handle_get_country_sessions(message):
                     arcname = os.path.join(country_code.lstrip('+'), f"{phone}.session")
                     zipf.write(path, arcname)
         tmp_zip_path = tmp_zip.name
+    summary = (
+        f"\ud83d\udce6 Session Files for {country_code}\n\n"
+        f"\ud83d\udcc1 Files: {file_count}\n"
+        f"\ud83d\udce4 Size: {format_size(total_size)}\n"
+        f"\ud83d\udcc5 Created: {created_str}\n\n"
+        f"\u2705 All session files for {country_code} have been downloaded."
+    )
+    bot.send_message(message.chat.id, summary)
     with open(tmp_zip_path, 'rb') as f:
-        bot.send_document(message.chat.id, f, caption=f"Sessions for {country_code}")
+        bot.send_document(message.chat.id, f, caption=zip_name, visible_file_name=zip_name)
     os.unlink(tmp_zip_path)
 
 # /getall - Download all sessions from all countries in zip file
@@ -47,6 +71,12 @@ def handle_get_all_sessions(message):
         bot.reply_to(message, "❌ You are not authorized to use this command.")
         return
     sessions = session_manager.list_country_sessions()
+    all_sessions = [s for sess_list in sessions.values() for s in sess_list]
+    file_count = len(all_sessions)
+    total_size = sum(session.get('size', 0) for session in all_sessions)
+    created = min((session.get('created', 0) for session in all_sessions if session.get('created')), default=None)
+    created_str = format_datetime(created) if created else get_now_str()
+    zip_name = f"all_sessions_{get_now_str()}.zip"
     found = False
     with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as tmp_zip:
         with zipfile.ZipFile(tmp_zip, 'w') as zipf:
@@ -63,8 +93,16 @@ def handle_get_all_sessions(message):
         bot.reply_to(message, "❌ No sessions found in any country.")
         os.unlink(tmp_zip_path)
         return
+    summary = (
+        f"\ud83d\udce6 All Session Files\n\n"
+        f"\ud83d\udcc1 Files: {file_count}\n"
+        f"\ud83d\udce4 Size: {format_size(total_size)}\n"
+        f"\ud83d\udcc5 Created: {created_str}\n\n"
+        f"\u2705 All session files have been downloaded."
+    )
+    bot.send_message(message.chat.id, summary)
     with open(tmp_zip_path, 'rb') as f:
-        bot.send_document(message.chat.id, f, caption="All sessions (all countries)")
+        bot.send_document(message.chat.id, f, caption=zip_name, visible_file_name=zip_name)
     os.unlink(tmp_zip_path)
 
 # /getinfo +country_code - Get detailed info about sessions for a country
@@ -84,22 +122,33 @@ def handle_getinfo_country_sessions(message):
     if not sessions or country_code not in sessions or not sessions[country_code]:
         bot.reply_to(message, f"❌ No sessions found for {country_code}")
         return
+    file_count = len(sessions[country_code])
+    total_size = sum(session.get('size', 0) for session in sessions[country_code])
+    created = min((session.get('created', 0) for session in sessions[country_code] if session.get('created')), default=None)
+    created_str = format_datetime(created) if created else get_now_str()
+    zip_name = f"all_sessions_{get_now_str()}.json"
     # Create a zip with one JSON file per session, named as country_code/phone_number.json
-    with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as tmp_zip:
-        with zipfile.ZipFile(tmp_zip, 'w') as zipf:
-            for session in sessions[country_code]:
-                info = {
-                    'phone_number': session.get('phone_number'),
-                    'size': session.get('size'),
-                    'modified': session.get('modified'),
-                    'created': session.get('created'),
-                    'session_path': session.get('session_path')
-                }
-                phone = session.get('phone_number') or os.path.splitext(os.path.basename(session.get('session_path', '')))[0]
-                json_bytes = json.dumps(info, indent=2).encode('utf-8')
-                arcname = os.path.join(country_code.lstrip('+'), f"{phone}.json")
-                zipf.writestr(arcname, json_bytes)
-        tmp_zip_path = tmp_zip.name
-    with open(tmp_zip_path, 'rb') as f:
-        bot.send_document(message.chat.id, f, caption=f"Session info for {country_code}")
-    os.unlink(tmp_zip_path)
+    with tempfile.NamedTemporaryFile(suffix='.json', delete=False, mode='w+b') as tmp_json:
+        info_list = []
+        for session in sessions[country_code]:
+            info = {
+                'phone_number': session.get('phone_number'),
+                'size': session.get('size'),
+                'modified': session.get('modified'),
+                'created': session.get('created'),
+                'session_path': session.get('session_path')
+            }
+            info_list.append(info)
+        tmp_json.write(json.dumps(info_list, indent=2).encode('utf-8'))
+        tmp_json_path = tmp_json.name
+    summary = (
+        f"\ud83d\udce6 Session Info for {country_code}\n\n"
+        f"\ud83d\udcc1 Files: {file_count}\n"
+        f"\ud83d\udce4 Size: {format_size(total_size)}\n"
+        f"\ud83d\udcc5 Created: {created_str}\n\n"
+        f"\u2705 All session info for {country_code} has been downloaded."
+    )
+    bot.send_message(message.chat.id, summary)
+    with open(tmp_json_path, 'rb') as f:
+        bot.send_document(message.chat.id, f, caption=zip_name, visible_file_name=zip_name)
+    os.unlink(tmp_json_path)
