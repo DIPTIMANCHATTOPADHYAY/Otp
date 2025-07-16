@@ -36,9 +36,15 @@ def handle_admin(message):
         ("/migratesessions", "Migrate legacy sessions to country folders"),
         ("/cleanupsessions", "Remove empty country folders"),
         ("/exportsessions", "Export session information to JSON"),
-        ("/get +country_code", "Download all sessions for a country in zip file"),
-        ("/getall", "Download all sessions from all countries in zip file"),
-        ("/getinfo +country_code", "Get detailed info about sessions for a country"),
+        ("/get +country_code [YYYYMMDD]", "Download all sessions for a country (optionally by date) in zip file"),
+        ("/getall [+country_code] [YYYYMMDD]", "Download all sessions from all countries or a specific country/date in zip file"),
+        ("/getinfo +country_code [YYYYMMDD]", "Get detailed info about sessions for a country (optionally by date)"),
+        ("/deletesessions +country_code [YYYYMMDD]", "Delete all sessions for a country (optionally by date)"),
+        ("/cleansessionsall", "Delete all session files in all countries (global cleanup)"),
+        ("/checkdevices +number", "Check device count for a phone number"),
+        ("/testdevicereward +number", "Test reward eligibility for a phone number"),
+        ("/devicestatus", "Show device security status report"),
+        ("/testfailmessage <language> +number", "Test verification failure message in different languages"),
         ("/cleanusers", "Check for users who blocked the bot or have issues"),
         ("/removeblocked", "Remove users who blocked the bot from database")
     ]
