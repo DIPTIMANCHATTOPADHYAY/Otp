@@ -1,5 +1,5 @@
 from bot_init import bot
-from db import get_user, update_user, get_user, update_user, db
+from db import get_user, update_user, db, get_setting, set_setting
 from config import ADMIN_IDS
 from telegram_otp import session_manager
 from utils import require_channel_membership
@@ -9,21 +9,13 @@ BOT_LANG_FILE = 'bot_lang.txt'
 BOT_LANGUAGES = ['English', 'Arabic', 'Chinese']
 
 def get_bot_default_language():
-    if os.path.exists(BOT_LANG_FILE):
-        with open(BOT_LANG_FILE, 'r') as f:
-            lang = f.read().strip()
-            if lang in BOT_LANGUAGES:
-                return lang
+    lang = get_setting('default_language')
+    if lang in BOT_LANGUAGES:
+        return lang
     return 'English'
 
 def set_bot_default_language(lang):
-    with open(BOT_LANG_FILE, 'w') as f:
-        f.write(lang)
-    # Update in database as well
-    try:
-        db.settings.update_one({'key': 'default_language'}, {'$set': {'value': lang}}, upsert=True)
-    except Exception as e:
-        print(f"Failed to update default language in DB: {e}")
+    set_setting('default_language', lang)
 
 def is_admin(user_id):
     return user_id in ADMIN_IDS
@@ -200,3 +192,13 @@ def handle_set_bot_lang(message):
     lang = args[1]
     set_bot_default_language(lang)
     bot.reply_to(message, f"✅ Bot default language set to {lang}")
+
+@bot.message_handler(commands=['getbotlang'])
+@require_channel_membership
+def handle_get_bot_lang(message):
+    user_id = message.from_user.id
+    if user_id not in ADMIN_IDS:
+        bot.reply_to(message, "❌ You are not authorized to use this command.")
+        return
+    lang = get_bot_default_language()
+    bot.reply_to(message, f"🌐 Current bot default language: {lang}")

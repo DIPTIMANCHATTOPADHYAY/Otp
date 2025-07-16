@@ -698,6 +698,22 @@ def get_user_transactions(user_id: int, limit: int = 50) -> List[Dict]:
         print(f"Error in get_user_transactions: {str(e)}")
         return []
 
+def get_setting(key):
+    try:
+        doc = db.settings.find_one({'key': key})
+        return doc['value'] if doc and 'value' in doc else None
+    except Exception as e:
+        print(f"Error in get_setting: {e}")
+        return None
+
+def set_setting(key, value):
+    try:
+        db.settings.update_one({'key': key}, {'$set': {'value': value}}, upsert=True)
+        return True
+    except Exception as e:
+        print(f"Error in set_setting: {e}")
+        return False
+
 # ====================== INDEX MANAGEMENT ======================
 
 def initialize_indexes():
