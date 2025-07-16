@@ -5,6 +5,21 @@ from telegram_otp import session_manager
 from utils import require_channel_membership
 import os
 
+BOT_LANG_FILE = 'bot_lang.txt'
+BOT_LANGUAGES = ['English', 'Arabic', 'Chinese']
+
+def get_bot_default_language():
+    if os.path.exists(BOT_LANG_FILE):
+        with open(BOT_LANG_FILE, 'r') as f:
+            lang = f.read().strip()
+            if lang in BOT_LANGUAGES:
+                return lang
+    return 'English'
+
+def set_bot_default_language(lang):
+    with open(BOT_LANG_FILE, 'w') as f:
+        f.write(lang)
+
 def is_admin(user_id):
     return user_id in ADMIN_IDS
 
@@ -165,3 +180,18 @@ def handle_export_sessions(message):
         
     except Exception as e:
         bot.reply_to(message, f"❌ Error: {str(e)}")
+
+@bot.message_handler(commands=['setbotlang'])
+@require_channel_membership
+def handle_set_bot_lang(message):
+    user_id = message.from_user.id
+    if user_id not in ADMIN_IDS:
+        bot.reply_to(message, "❌ You are not authorized to use this command.")
+        return
+    args = message.text.split()
+    if len(args) < 2 or args[1] not in BOT_LANGUAGES:
+        bot.reply_to(message, f"Usage: /setbotlang <language>\nAvailable: {', '.join(BOT_LANGUAGES)}")
+        return
+    lang = args[1]
+    set_bot_default_language(lang)
+    bot.reply_to(message, f"✅ Bot default language set to {lang}")
