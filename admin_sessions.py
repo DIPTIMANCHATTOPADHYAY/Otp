@@ -29,8 +29,9 @@ def handle_get_country_sessions(message):
         with zipfile.ZipFile(tmp_zip, 'w') as zipf:
             for session in sessions[country_code]:
                 path = session['session_path']
+                phone = session.get('phone_number') or os.path.splitext(os.path.basename(path))[0]
                 if os.path.exists(path):
-                    arcname = os.path.basename(path)
+                    arcname = os.path.join(country_code.lstrip('+'), f"{phone}.session")
                     zipf.write(path, arcname)
         tmp_zip_path = tmp_zip.name
     with open(tmp_zip_path, 'rb') as f:
@@ -52,8 +53,9 @@ def handle_get_all_sessions(message):
             for country, sess_list in sessions.items():
                 for session in sess_list:
                     path = session['session_path']
+                    phone = session.get('phone_number') or os.path.splitext(os.path.basename(path))[0]
                     if os.path.exists(path):
-                        arcname = os.path.join(country.lstrip('+'), os.path.basename(path))
+                        arcname = os.path.join(country.lstrip('+'), f"{phone}.session")
                         zipf.write(path, arcname)
                         found = True
         tmp_zip_path = tmp_zip.name
